@@ -1,0 +1,1150 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Minas Clean — Painel de Inteligência</title>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap');
+
+:root{
+  --bg:#14171C;
+  --panel:#1C2128;
+  --panel-2:#22272F;
+  --line:#2D333D;
+  --text:#E8EAED;
+  --text-dim:#9099A6;
+  --accent:#FF7A3D;
+  --accent-dim:#3D2A1F;
+  --good:#4ADE80;
+  --good-dim:#1B3326;
+  --bad:#F87171;
+  --bad-dim:#3A1F1F;
+  --neutral:#7C9CBF;
+  --font-display:'Space Grotesk', system-ui, sans-serif;
+  --font-body:'IBM Plex Sans', system-ui, sans-serif;
+  --font-mono:'IBM Plex Mono', 'Courier New', monospace;
+}
+
+*{box-sizing:border-box; margin:0; padding:0;}
+
+body{
+  background:var(--bg);
+  color:var(--text);
+  font-family:var(--font-body);
+  min-height:100vh;
+  -webkit-font-smoothing:antialiased;
+}
+
+/* ===== LOGIN GATE ===== */
+#gate{
+  position:fixed; inset:0; z-index:999;
+  background:var(--bg);
+  display:flex; align-items:center; justify-content:center;
+  flex-direction:column; gap:24px;
+}
+#gate .gate-box{
+  background:var(--panel);
+  border:1px solid var(--line);
+  border-radius:8px;
+  padding:40px 36px;
+  width:340px;
+  text-align:center;
+}
+#gate .gate-mark{
+  font-family:var(--font-display);
+  font-weight:700;
+  font-size:13px;
+  letter-spacing:.18em;
+  color:var(--accent);
+  margin-bottom:6px;
+}
+#gate h1{
+  font-family:var(--font-display);
+  font-size:20px;
+  font-weight:600;
+  margin-bottom:4px;
+}
+#gate p{
+  color:var(--text-dim);
+  font-size:13px;
+  margin-bottom:24px;
+}
+#gate input{
+  width:100%;
+  background:var(--panel-2);
+  border:1px solid var(--line);
+  color:var(--text);
+  font-family:var(--font-mono);
+  font-size:14px;
+  padding:11px 14px;
+  border-radius:5px;
+  margin-bottom:12px;
+  outline:none;
+}
+#gate input:focus{border-color:var(--accent);}
+#gate button{
+  width:100%;
+  background:var(--accent);
+  border:none;
+  color:#1A1208;
+  font-family:var(--font-body);
+  font-weight:600;
+  font-size:14px;
+  padding:11px;
+  border-radius:5px;
+  cursor:pointer;
+}
+#gate button:hover{filter:brightness(1.08);}
+#gate-error{
+  color:var(--bad);
+  font-size:12px;
+  margin-top:10px;
+  min-height:14px;
+}
+#gate .gate-note{
+  font-size:11px;
+  color:var(--text-dim);
+  margin-top:18px;
+  line-height:1.5;
+}
+
+/* ===== APP SHELL ===== */
+#app{display:none;}
+#app.visible{display:block;}
+
+header.topbar{
+  background:var(--panel);
+  border-bottom:1px solid var(--line);
+  padding:18px 28px;
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  flex-wrap:wrap;
+  gap:14px;
+}
+.brand{display:flex; align-items:center; gap:12px;}
+.brand-mark{
+  width:36px; height:36px;
+  background:linear-gradient(135deg, var(--accent), #C9501A);
+  border-radius:7px;
+  display:flex; align-items:center; justify-content:center;
+  font-family:var(--font-display); font-weight:700; font-size:15px;
+  color:#1A1208;
+  flex-shrink:0;
+}
+.brand-text h1{
+  font-family:var(--font-display);
+  font-size:16px;
+  font-weight:600;
+}
+.brand-text span{
+  font-size:11.5px;
+  color:var(--text-dim);
+}
+
+.update-indicator{
+  display:flex;
+  align-items:center;
+  gap:8px;
+  background:var(--panel-2);
+  border:1px solid var(--line);
+  border-radius:6px;
+  padding:8px 14px;
+  font-family:var(--font-mono);
+  font-size:12px;
+}
+.update-dot{
+  width:7px; height:7px; border-radius:50%;
+  background:var(--good);
+  box-shadow:0 0 0 3px var(--good-dim);
+  flex-shrink:0;
+}
+.update-dot.stale{background:var(--accent); box-shadow:0 0 0 3px var(--accent-dim);}
+.update-dot.fail{background:var(--bad); box-shadow:0 0 0 3px var(--bad-dim);}
+.update-text .label{color:var(--text-dim); margin-right:6px;}
+
+nav.tabs{
+  background:var(--panel);
+  border-bottom:1px solid var(--line);
+  padding:0 28px;
+  display:flex;
+  gap:4px;
+  overflow-x:auto;
+}
+nav.tabs button{
+  background:none;
+  border:none;
+  color:var(--text-dim);
+  font-family:var(--font-body);
+  font-weight:500;
+  font-size:13.5px;
+  padding:14px 18px;
+  cursor:pointer;
+  border-bottom:2px solid transparent;
+  white-space:nowrap;
+}
+nav.tabs button.active{
+  color:var(--text);
+  border-bottom-color:var(--accent);
+}
+nav.tabs button:hover:not(.active){color:var(--text);}
+
+main{padding:28px; max-width:1400px; margin:0 auto;}
+.tab-panel{display:none;}
+.tab-panel.active{display:block;}
+
+/* ===== SHARED COMPONENTS ===== */
+.section-title{
+  font-family:var(--font-display);
+  font-size:14px;
+  font-weight:600;
+  letter-spacing:.04em;
+  text-transform:uppercase;
+  color:var(--text-dim);
+  margin:32px 0 14px;
+  display:flex;
+  align-items:center;
+  gap:10px;
+}
+.section-title:first-child{margin-top:0;}
+.section-title .num{
+  color:var(--accent);
+  font-family:var(--font-mono);
+}
+
+.kpi-grid{
+  display:grid;
+  grid-template-columns:repeat(auto-fit, minmax(180px, 1fr));
+  gap:1px;
+  background:var(--line);
+  border:1px solid var(--line);
+  border-radius:8px;
+  overflow:hidden;
+}
+.kpi{
+  background:var(--panel);
+  padding:18px 20px;
+}
+.kpi .kpi-label{
+  font-size:11px;
+  color:var(--text-dim);
+  text-transform:uppercase;
+  letter-spacing:.05em;
+  margin-bottom:8px;
+}
+.kpi .kpi-value{
+  font-family:var(--font-display);
+  font-size:26px;
+  font-weight:600;
+  line-height:1;
+}
+.kpi .kpi-delta{
+  font-family:var(--font-mono);
+  font-size:11.5px;
+  margin-top:8px;
+  display:inline-flex;
+  align-items:center;
+  gap:4px;
+}
+.kpi-delta.up{color:var(--good);}
+.kpi-delta.down{color:var(--bad);}
+.kpi-delta.flat{color:var(--text-dim);}
+
+.summary-box{
+  background:var(--panel);
+  border:1px solid var(--line);
+  border-left:3px solid var(--accent);
+  border-radius:6px;
+  padding:20px 22px;
+  margin-bottom:6px;
+}
+.summary-box h3{
+  font-family:var(--font-display);
+  font-size:14px;
+  margin-bottom:10px;
+  display:flex;
+  align-items:center;
+  gap:8px;
+}
+.summary-box ul{
+  list-style:none;
+  display:flex;
+  flex-direction:column;
+  gap:9px;
+}
+.summary-box li{
+  font-size:13px;
+  line-height:1.55;
+  color:var(--text);
+  padding-left:16px;
+  position:relative;
+}
+.summary-box li::before{
+  content:'';
+  position:absolute;
+  left:0; top:7px;
+  width:5px; height:5px;
+  background:var(--accent);
+  border-radius:50%;
+}
+.summary-box li b{color:var(--accent); font-weight:600;}
+.summary-box li .tag-why{color:var(--text-dim); font-style:italic;}
+
+.action-card{
+  background:var(--panel);
+  border:1px solid var(--line);
+  border-radius:6px;
+  padding:16px 18px;
+  margin-bottom:10px;
+  display:grid;
+  grid-template-columns:auto 1fr;
+  gap:14px;
+}
+.action-card .priority{
+  font-family:var(--font-mono);
+  font-size:11px;
+  font-weight:600;
+  padding:3px 9px;
+  border-radius:4px;
+  height:fit-content;
+  white-space:nowrap;
+}
+.priority.high{background:var(--bad-dim); color:var(--bad);}
+.priority.med{background:var(--accent-dim); color:var(--accent);}
+.priority.low{background:var(--panel-2); color:var(--neutral);}
+.action-card .action-title{font-weight:600; font-size:13.5px; margin-bottom:4px;}
+.action-card .action-why{font-size:12.5px; color:var(--text-dim); line-height:1.5;}
+
+/* monitoring cards (competitors) */
+.monitor-grid{
+  display:grid;
+  grid-template-columns:repeat(auto-fill, minmax(310px, 1fr));
+  gap:14px;
+}
+.monitor-card{
+  background:var(--panel);
+  border:1px solid var(--line);
+  border-left:3px solid var(--neutral);
+  border-radius:6px;
+  padding:18px;
+}
+.monitor-card.threat-high{border-left-color:var(--bad);}
+.monitor-card.threat-med{border-left-color:var(--accent);}
+.monitor-card.threat-low{border-left-color:var(--good);}
+.monitor-card .mc-head{
+  display:flex; justify-content:space-between; align-items:flex-start;
+  margin-bottom:12px;
+}
+.monitor-card .mc-name{font-family:var(--font-display); font-weight:600; font-size:14.5px;}
+.monitor-card .mc-sku{font-size:11.5px; color:var(--text-dim); margin-top:2px;}
+.threat-pill{
+  font-family:var(--font-mono);
+  font-size:10px;
+  font-weight:600;
+  padding:3px 8px;
+  border-radius:10px;
+  white-space:nowrap;
+  text-transform:uppercase;
+}
+.threat-pill.threat-high{background:var(--bad-dim); color:var(--bad); border-left:none;}
+.threat-pill.threat-med{background:var(--accent-dim); color:var(--accent); border-left:none;}
+.threat-pill.threat-low{background:var(--good-dim); color:var(--good); border-left:none;}
+.mc-stats{display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-bottom:10px;}
+.mc-stat .mc-stat-label{font-size:10.5px; color:var(--text-dim); text-transform:uppercase;}
+.mc-stat .mc-stat-value{font-family:var(--font-mono); font-size:14px; margin-top:2px;}
+.mc-footer{
+  border-top:1px solid var(--line);
+  margin-top:10px;
+  padding-top:10px;
+  font-size:11.5px;
+  color:var(--text-dim);
+  display:flex;
+  justify-content:space-between;
+}
+.mc-footer a{color:var(--neutral); text-decoration:none;}
+
+table.data-table{
+  width:100%;
+  border-collapse:collapse;
+  background:var(--panel);
+  border:1px solid var(--line);
+  border-radius:6px;
+  overflow:hidden;
+  font-size:12.5px;
+}
+table.data-table th{
+  background:var(--panel-2);
+  text-align:left;
+  padding:10px 14px;
+  font-size:11px;
+  text-transform:uppercase;
+  letter-spacing:.04em;
+  color:var(--text-dim);
+  font-weight:600;
+  border-bottom:1px solid var(--line);
+}
+table.data-table td{
+  padding:10px 14px;
+  border-bottom:1px solid var(--line);
+  font-family:var(--font-mono);
+}
+table.data-table tr:last-child td{border-bottom:none;}
+table.data-table tr:hover td{background:var(--panel-2);}
+.val-up{color:var(--good);}
+.val-down{color:var(--bad);}
+
+.store-toggle{
+  display:flex;
+  gap:8px;
+  margin-bottom:18px;
+}
+.store-toggle button{
+  background:var(--panel);
+  border:1px solid var(--line);
+  color:var(--text-dim);
+  font-family:var(--font-body);
+  font-size:12.5px;
+  font-weight:500;
+  padding:9px 16px;
+  border-radius:6px;
+  cursor:pointer;
+}
+.store-toggle button.active{
+  background:var(--accent-dim);
+  border-color:var(--accent);
+  color:var(--accent);
+}
+
+.period-toggle{
+  display:flex;
+  gap:6px;
+  margin-bottom:18px;
+}
+.period-toggle button{
+  background:var(--panel-2);
+  border:1px solid var(--line);
+  color:var(--text-dim);
+  font-family:var(--font-mono);
+  font-size:11.5px;
+  padding:6px 12px;
+  border-radius:5px;
+  cursor:pointer;
+}
+.period-toggle button.active{
+  background:var(--neutral);
+  border-color:var(--neutral);
+  color:#0E1620;
+  font-weight:600;
+}
+
+.data-source-banner{
+  background:var(--accent-dim);
+  border:1px solid var(--accent);
+  border-radius:6px;
+  padding:10px 16px;
+  font-size:12px;
+  color:var(--accent);
+  margin-bottom:20px;
+  display:flex;
+  align-items:center;
+  gap:8px;
+}
+
+.empty-state{
+  text-align:center;
+  padding:50px 20px;
+  color:var(--text-dim);
+  font-size:13px;
+}
+
+footer.app-footer{
+  text-align:center;
+  padding:24px;
+  color:var(--text-dim);
+  font-size:11px;
+  font-family:var(--font-mono);
+}
+
+@media (max-width:640px){
+  main{padding:16px;}
+  header.topbar{padding:14px 16px;}
+  nav.tabs{padding:0 16px;}
+}
+</style>
+</head>
+<body>
+
+<!-- ===== LOGIN GATE ===== -->
+<div id="gate">
+  <div class="gate-box">
+    <div class="gate-mark">MINAS CLEAN</div>
+    <h1>Painel de Inteligência</h1>
+    <p>Acesso restrito — digite a senha para continuar</p>
+    <input type="password" id="pwd-input" placeholder="Senha" autocomplete="off">
+    <button onclick="checkPassword()">Entrar</button>
+    <div id="gate-error"></div>
+    <div class="gate-note">
+      Aviso: esta é uma barreira simples de acesso, não criptografia.<br>Não use para dados altamente sensíveis.
+    </div>
+  </div>
+</div>
+
+<!-- ===== APP ===== -->
+<div id="app">
+  <header class="topbar">
+    <div class="brand">
+      <div class="brand-mark">MC</div>
+      <div class="brand-text">
+        <h1>Painel de Inteligência — Minas Clean</h1>
+        <span>Monitoramento competitivo &amp; performance de mídia</span>
+      </div>
+    </div>
+    <div class="update-indicator">
+      <div class="update-dot" id="update-dot"></div>
+      <div class="update-text">
+        <span class="label">Última atualização:</span>
+        <span id="update-timestamp">—</span>
+      </div>
+    </div>
+  </header>
+
+  <nav class="tabs">
+    <button class="tab-btn active" data-tab="tab1">Aba 1 — Inteligência Competitiva</button>
+    <button class="tab-btn" data-tab="tab2">Aba 2 — Performance &amp; ROAS</button>
+    <button class="tab-btn" data-tab="tab3">Aba 3 — Configuração de Dados</button>
+  </nav>
+
+  <main>
+
+    <!-- ============ TAB 1: COMPETITORS ============ -->
+    <section id="tab1" class="tab-panel active">
+
+      <div class="data-source-banner" id="banner-tab1">
+        ⚠ Exibindo dados de exemplo. Configure a fonte de dados real na Aba 3.
+      </div>
+
+      <div class="section-title"><span class="num">01</span> Resumo — Melhores Práticas dos Concorrentes</div>
+      <div class="summary-box">
+        <h3>📊 O que os concorrentes estão fazendo melhor agora</h3>
+        <ul id="best-practices-list"></ul>
+      </div>
+
+      <div class="section-title"><span class="num">02</span> Suas Próximas Ações Sugeridas</div>
+      <div id="actions-list"></div>
+
+      <div class="section-title"><span class="num">03</span> KPIs Comparativos — Você vs. Mercado</div>
+      <div class="kpi-grid" id="kpi-grid-tab1"></div>
+
+      <div class="section-title"><span class="num">04</span> Radar de Concorrentes</div>
+      <div class="monitor-grid" id="monitor-grid"></div>
+
+      <div class="section-title"><span class="num">05</span> Detalhamento por SKU — Comparativo de Vendas</div>
+      <div class="store-toggle">
+        <button class="store-active-tab1 active" data-store="all">Consolidado (Loja 1 + Loja 2)</button>
+        <button class="store-active-tab1" data-store="loja1">Loja 1</button>
+        <button class="store-active-tab1" data-store="loja2">Loja 2</button>
+      </div>
+      <div style="overflow-x:auto;">
+        <table class="data-table" id="table-skus">
+          <thead>
+            <tr>
+              <th>Tamanho / Kit</th>
+              <th>Seu Preço</th>
+              <th>Suas Vendas/dia</th>
+              <th>Concorrente</th>
+              <th>Preço Concorrente</th>
+              <th>Vendas/dia Concorrente</th>
+              <th>Posição</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+
+    </section>
+
+    <!-- ============ TAB 2: ROAS / STORES ============ -->
+    <section id="tab2" class="tab-panel">
+
+      <div class="data-source-banner" id="banner-tab2">
+        ⚠ Exibindo dados de exemplo. Conecte a Shopee Open API para dados reais (ver Aba 3).
+      </div>
+
+      <div class="store-toggle">
+        <button class="store-active active" data-store="all">Ambas as Lojas</button>
+        <button class="store-active" data-store="loja1">Loja 1</button>
+        <button class="store-active" data-store="loja2">Loja 2</button>
+      </div>
+
+      <div class="section-title"><span class="num">01</span> KPIs Consolidados de Rentabilidade</div>
+      <div class="kpi-grid" id="kpi-grid-tab2"></div>
+
+      <div class="section-title"><span class="num">02</span> Histórico de Performance por Dia</div>
+      <div class="period-toggle">
+        <button class="period-active active" data-period="7">Últimos 7 dias</button>
+        <button class="period-active" data-period="14">Últimos 14 dias</button>
+        <button class="period-active" data-period="30">Últimos 30 dias</button>
+        <button class="period-active" data-period="0">Todos</button>
+      </div>
+      <div style="overflow-x:auto;">
+        <table class="data-table" id="table-actions">
+          <thead>
+            <tr>
+              <th>Data</th>
+              <th>Loja</th>
+              <th>Impressões</th>
+              <th>Cliques</th>
+              <th>CTR%</th>
+              <th>Custo (R$)</th>
+              <th>GMV (R$)</th>
+              <th>ROAS</th>
+              <th>CPC (R$)</th>
+              <th>Pedidos</th>
+              <th>Conv%</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+
+      <div class="section-title"><span class="num">03</span> Sugestões de Ação &amp; Monitoramento Contínuo</div>
+      <div id="actions-list-tab2"></div>
+
+    </section>
+
+    <!-- ============ TAB 3: DATA CONFIG ============ -->
+    <section id="tab3" class="tab-panel">
+      <div class="section-title"><span class="num">⚙</span> Configuração da Fonte de Dados</div>
+      <div class="summary-box">
+        <h3>Como conectar dados reais</h3>
+        <ul>
+          <li><b>Aba 1 (Concorrentes):</b> publique a planilha do Google Sheets alimentada pelo Browse AI como CSV (Arquivo → Compartilhar → Publicar na web → formato CSV) e cole a URL no topo do arquivo <span class="tag-why">(variável SHEET_URL_COMPETITORS no código)</span>.</li>
+          <li><b>Aba 2 (Suas lojas):</b> publique a planilha alimentada pela Shopee Open API da mesma forma <span class="tag-why">(variável SHEET_URL_STORES no código)</span> — esta é a fonte de preço/vendas reais usada também na Aba 1 para comparar com concorrentes.</li>
+          <li>Enquanto as URLs não forem configuradas, o painel exibe dados de exemplo claramente identificados pelo aviso laranja no topo de cada aba.</li>
+          <li>O indicador "Última atualização" no topo reflete o horário exato em que os dados foram buscados com sucesso — se o fetch falhar, ele mostra o erro e mantém o último dado bom carregado.</li>
+        </ul>
+      </div>
+
+      <div class="section-title"><span class="num">⚙</span> Catálogo de SKUs e Mapeamento de Concorrentes</div>
+      <div class="summary-box">
+        <h3>Como funciona o comparativo de tamanhos/kits</h3>
+        <ul>
+          <li>Seu catálogo de 24 SKUs (tamanhos 30x30 a 70x100, com variações de unidades por kit) está fixo no código em <b>SKU_CATALOG</b> — edite ali se o catálogo mudar.</li>
+          <li>Como cada loja Shopee pode vender um subconjunto diferente de SKUs, o preço e vendas de cada item vêm separados por <b>Loja 1</b> e <b>Loja 2</b>, com opção de ver consolidado.</li>
+          <li>Os concorrentes nem sempre anunciam com a mesma nomenclatura. A tabela <b>COMPETITOR_SKU_MAP</b> traduz o tamanho identificado no anúncio do concorrente (ex: "30x30") para o SKU equivalente no seu catálogo — ajuste essa tabela conforme for monitorando mais concorrentes com nomenclaturas diferentes.</li>
+          <li>Se um concorrente vender um kit com quantidade muito diferente da sua (ex: kit de 20 vs. seu kit de 10), o comparativo de preço direto pode enganar — considere normalizar por preço/unidade ao analisar.</li>
+        </ul>
+      </div>
+    </section>
+
+  </main>
+
+  <footer class="app-footer">
+    MINAS CLEAN DISTRIBUIDORA — Painel interno · Dados sensíveis, não compartilhar a URL publicada sem necessidade
+  </footer>
+</div>
+
+<script>
+/* =========================================================
+   CONFIGURAÇÃO — TROCAR PELAS URLs REAIS QUANDO DISPONÍVEIS
+   ========================================================= */
+const SHEET_URL_COMPETITORS = ""; // URL CSV publicada do Google Sheets (Browse AI)
+const SHEET_URL_STORES = "https://docs.google.com/spreadsheets/d/1IXN9PtJnqJfXDevC7Iy1FTBbrMF-rquXFZdlaaIRTDI/export?format=csv&gid=635079664";      // URL CSV publicada do Google Sheets (Shopee Open API) — preço/vendas reais por SKU e por loja
+const PASSWORD = "minasclean2026"; // Troque esta senha. É visível no código-fonte (ver aviso na tela de login).
+
+/* =========================================================
+   CATÁLOGO REAL DE SKUs — Minas Clean (panos de microfibra)
+   Esta é a estrutura de produto fixa. Preço, vendas e estoque
+   de cada item vêm da Shopee Open API (SHEET_URL_STORES) por loja.
+   Edite esta lista se o catálogo mudar.
+   ========================================================= */
+const SKU_CATALOG = [
+  {id:"35x35-10", tamanho:"35x35", kit:10},
+  {id:"40x40-10", tamanho:"40x40", kit:10},
+  {id:"40x60-10", tamanho:"40x60", kit:10},
+  {id:"35x55-5",  tamanho:"35x55", kit:5},
+  {id:"35x55-10", tamanho:"35x55", kit:10},
+  {id:"35x55-15", tamanho:"35x55", kit:15},
+  {id:"35x55-20", tamanho:"35x55", kit:20},
+  {id:"50x70-3",  tamanho:"50x70", kit:3},
+  {id:"50x70-5",  tamanho:"50x70", kit:5},
+  {id:"50x70-6",  tamanho:"50x70", kit:6},
+  {id:"50x70-7",  tamanho:"50x70", kit:7},
+  {id:"50x70-10", tamanho:"50x70", kit:10},
+  {id:"50x70-12", tamanho:"50x70", kit:12},
+  {id:"60x80-3",  tamanho:"60x80", kit:3},
+  {id:"60x80-5",  tamanho:"60x80", kit:5},
+  {id:"60x80-7",  tamanho:"60x80", kit:7},
+  {id:"60x80-10", tamanho:"60x80", kit:10},
+  {id:"30x30-30", tamanho:"30x30", kit:30},
+  {id:"30x30-15", tamanho:"30x30", kit:15},
+  {id:"70x100-2", tamanho:"70x100", kit:2},
+  {id:"70x100-4", tamanho:"70x100", kit:4},
+  {id:"70x100-6", tamanho:"70x100", kit:6},
+  {id:"70x100-8", tamanho:"70x100", kit:8},
+  {id:"70x100-3", tamanho:"70x100", kit:3},
+  {id:"70x100-5", tamanho:"70x100", kit:5},
+];
+
+/* =========================================================
+   MAPEAMENTO CONCORRENTE → SEU SKU
+   A nomenclatura de tamanho/kit dos concorrentes pode não bater
+   exatamente com a sua. Esta tabela traduz o tamanho que o Browse AI
+   captou no anúncio do concorrente para o sku_id mais próximo no seu
+   catálogo, permitindo comparação direta. Ajuste à medida que os
+   dados reais forem chegando.
+   ========================================================= */
+const COMPETITOR_SKU_MAP = {
+  "30x30": "30x30-30",
+  "35x35": "35x35-10",
+  "40x40": "40x40-10",
+  "40x60": "40x60-10",
+  "35x55": "35x55-10",
+  "50x70": "50x70-5",
+  "60x80": "60x80-5",
+  "70x100": "70x100-4",
+};
+
+/* =========================================================
+   GATE DE SENHA
+   ========================================================= */
+function checkPassword(){
+  const val = document.getElementById('pwd-input').value;
+  if(val === PASSWORD){
+    document.getElementById('gate').style.display = 'none';
+    document.getElementById('app').classList.add('visible');
+    initDashboard();
+  } else {
+    document.getElementById('gate-error').textContent = 'Senha incorreta. Tente novamente.';
+  }
+}
+document.getElementById('pwd-input').addEventListener('keydown', e => {
+  if(e.key === 'Enter') checkPassword();
+});
+
+/* =========================================================
+   TABS
+   ========================================================= */
+document.querySelectorAll('.tab-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+    document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+    btn.classList.add('active');
+    document.getElementById(btn.dataset.tab).classList.add('active');
+  });
+});
+
+/* =========================================================
+   DADOS DE EXEMPLO (usados até as URLs reais serem configuradas)
+   Claramente marcados — NÃO são dados reais do João.
+   Estrutura por loja: cada SKU tem preço/vendas em loja1 e loja2.
+   ========================================================= */
+const EXAMPLE_YOUR_PRICES = {
+  // sku_id: { loja1: {preco, vendas_dia}, loja2: {preco, vendas_dia} }
+  "30x30-30": {loja1:{preco:34.90, vendas_dia:12}, loja2:{preco:36.50, vendas_dia:7}},
+  "35x35-10": {loja1:{preco:18.90, vendas_dia:9},  loja2:{preco:19.90, vendas_dia:5}},
+  "40x40-10": {loja1:{preco:22.50, vendas_dia:6},  loja2:{preco:0,     vendas_dia:0}}, // 0 = SKU não vendido nesta loja
+  "40x60-10": {loja1:{preco:28.90, vendas_dia:4},  loja2:{preco:29.90, vendas_dia:3}},
+  "50x70-5":  {loja1:{preco:24.90, vendas_dia:14}, loja2:{preco:25.90, vendas_dia:10}},
+  "60x80-5":  {loja1:{preco:31.90, vendas_dia:8},  loja2:{preco:32.90, vendas_dia:6}},
+  "70x100-4": {loja1:{preco:38.90, vendas_dia:5},  loja2:{preco:0,     vendas_dia:0}},
+};
+
+const EXAMPLE_COMPETITORS = [
+  {nome:"Loja CleanMax Microfibra", sku_texto:"Pano Multiuso 30x30 kit c/ 30un", tamanho_detectado:"30x30", preco:29.90, vendas_dia:42, vendas_semana:280, vendas_mes:1150, threat:"high", url:"#"},
+  {nome:"Loja CleanMax Microfibra", sku_texto:"Pano 50x70 kit c/ 5un", tamanho_detectado:"50x70", preco:21.90, vendas_dia:18, vendas_semana:120, vendas_mes:490, threat:"high", url:"#"},
+  {nome:"FibraPro Oficial", sku_texto:"Microfibra 30x30 30 peças", tamanho_detectado:"30x30", preco:32.50, vendas_dia:25, vendas_semana:165, vendas_mes:680, threat:"med", url:"#"},
+  {nome:"FibraPro Oficial", sku_texto:"Pano Automotivo 60x80 kit 5", tamanho_detectado:"60x80", preco:29.90, vendas_dia:14, vendas_semana:95, vendas_mes:410, threat:"med", url:"#"},
+  {nome:"CasaLimpa Distribuidora", sku_texto:"Kit Microfibra 35x35 10un", tamanho_detectado:"35x35", preco:16.50, vendas_dia:31, vendas_semana:200, vendas_mes:870, threat:"high", url:"#"},
+  {nome:"Top Fibra Shop", sku_texto:"Pano Gigante 70x100 kit 4", tamanho_detectado:"70x100", preco:41.90, vendas_dia:9, vendas_semana:58, vendas_mes:240, threat:"low", url:"#"},
+];
+
+const EXAMPLE_BEST_PRACTICES = [
+  {text:"CleanMax baixou o preço do <b>Pano Multiuso 30x30cm</b> de R$ 12,90 para R$ 9,90 há 5 dias e triplicou o volume de vendas diário.", why:"Motivo provável: elasticidade de preço alta nesse SKU — é item de entrada, sensível a preço."},
+  {text:"CasaLimpa está usando <b>kits combo</b> (multiuso + automotivo) como produto âncora, aumentando ticket médio.", why:"Motivo provável: cross-sell reduz custo de aquisição por pedido."},
+  {text:"FibraPro investe pesado em <b>anúncios patrocinados na busca</b> para o termo \"pano microfibra\", aparecendo nas 3 primeiras posições.", why:"Motivo provável: termo de alto volume de busca, eles estão pagando para dominar topo de funil."},
+];
+
+const EXAMPLE_ACTIONS_TAB1 = [
+  {priority:"high", title:"Avaliar redução tática de preço no Pano Multiuso 30x30cm", why:"Você está sendo undercut por 2 concorrentes (CleanMax e CasaLimpa) no SKU de maior volume. Simular impacto de margem antes de decidir."},
+  {priority:"med", title:"Criar kit combo próprio (multiuso + automotivo)", why:"CasaLimpa está validando esse formato com sucesso aparente — pode ser replicável com seu mix de produtos."},
+  {priority:"med", title:"Testar anúncio patrocinado para \"pano microfibra\"", why:"FibraPro está dominando esse termo de busca; avaliar custo de entrada vs. potencial de tráfego."},
+  {priority:"low", title:"Monitorar Top Fibra Shop com menor prioridade", why:"Ameaça baixa no momento — volume de vendas estável e sem mudanças recentes de preço."},
+];
+
+const EXAMPLE_KPI_TAB1 = [
+  {label:"Sua posição de preço média", value:"+8%", delta:"acima da mediana do mercado", trend:"down"},
+  {label:"Concorrentes monitorados", value:"6", delta:"3x por semana", trend:"flat"},
+  {label:"SKUs com risco de undercut", value:"2", delta:"requer atenção", trend:"down"},
+  {label:"Crescimento médio de vendas (concorrência)", value:"+14%", delta:"semana vs. semana anterior", trend:"down"},
+];
+
+const EXAMPLE_STORE_ACTIONS = [
+  {data:"20/06/2026", loja:"Loja 1", acao:"Aumento de orçamento Ads", tipo:"Investimento", investimento:"R$ 150,00", resultado:"+R$ 890,00 em vendas", roas:"5.9x", comentario:"Resultado positivo, manter.", periodo:1},
+  {data:"19/06/2026", loja:"Loja 2", acao:"Redução de preço (Kit 5 Panos)", tipo:"Preço", investimento:"—", resultado:"+22% em conversão", roas:"—", comentario:"Volume subiu, margem caiu levemente. Monitorar.", periodo:1},
+  {data:"15/06/2026", loja:"Loja 1", acao:"Campanha de busca — novo grupo de anúncios", tipo:"Investimento", investimento:"R$ 420,00", resultado:"+R$ 1.680,00 em vendas", roas:"4.0x", comentario:"ROAS dentro da meta, mas abaixo da campanha anterior.", periodo:7},
+  {data:"10/06/2026", loja:"Loja 2", acao:"Aumento de preço (Pano Automotivo)", tipo:"Preço", investimento:"—", resultado:"-8% em vendas", roas:"—", comentario:"Queda de volume maior que o esperado, reavaliar.", periodo:7},
+  {data:"02/06/2026", loja:"Loja 1", acao:"Campanha de Descoberta (Discovery Ads)", tipo:"Investimento", investimento:"R$ 980,00", resultado:"+R$ 3.100,00 em vendas", roas:"3.16x", comentario:"ROAS abaixo da média histórica, revisar segmentação.", periodo:30},
+];
+
+const EXAMPLE_KPI_TAB2 = [
+  {label:"ROAS médio (30 dias)", value:"4.2x", delta:"+0.3x vs. mês anterior", trend:"up"},
+  {label:"Investimento total em Ads (30d)", value:"R$ 3.840", delta:"30 dias", trend:"flat"},
+  {label:"Receita atribuída a Ads (30d)", value:"R$ 16.130", delta:"30 dias", trend:"up"},
+  {label:"Tráfego pago (sessões/dia)", value:"312", delta:"+18% semana", trend:"up"},
+  {label:"Tráfego orgânico (sessões/dia)", value:"540", delta:"-4% semana", trend:"down"},
+];
+
+const EXAMPLE_ACTIONS_TAB2 = [
+  {priority:"high", title:"Investigar queda de tráfego orgânico (-4% na semana)", why:"Pode indicar perda de posição em busca orgânica para concorrentes que estão investindo mais em SEO/relevância."},
+  {priority:"med", title:"Realocar parte do orçamento da Loja 2 para a campanha de busca da Loja 1", why:"Loja 1 está com ROAS de 4.0x-5.9x consistente; Loja 2 mostrou resultado misto na última mudança de preço."},
+  {priority:"low", title:"Manter monitoramento diário do ROAS por campanha", why:"Sem ação necessária agora, apenas observação contínua para detectar tendência antes que vire problema."},
+];
+
+/* =========================================================
+   FETCH DE DADOS (Google Sheets CSV) COM FALLBACK
+   ========================================================= */
+function parseCSV(text){
+  const lines = text.trim().split('\n');
+  const headers = lines[0].split(',').map(h => h.trim().replace(/^"|"$/g,''));
+  return lines.slice(1).map(line => {
+    // split respeitando campos entre aspas
+    const cells = [];
+    let cur = '', inQ = false;
+    for(let ch of line){
+      if(ch === '"'){ inQ = !inQ; }
+      else if(ch === ',' && !inQ){ cells.push(cur); cur = ''; }
+      else { cur += ch; }
+    }
+    cells.push(cur);
+    const obj = {};
+    headers.forEach((h, i) => {
+      let v = (cells[i] || '').trim().replace(/^"|"$/g,'');
+      obj[h] = v;
+    });
+    return obj;
+  });
+}
+
+async function fetchSheetData(url){
+  if(!url) return null;
+  try{
+    const res = await fetch(url, {cache:"no-store"});
+    if(!res.ok) throw new Error("HTTP " + res.status);
+    const text = await res.text();
+    return parseCSV(text);
+  } catch(err){
+    console.error("Falha ao buscar planilha:", err);
+    return {error: err.message};
+  }
+}
+
+function setUpdateIndicator(status, when){
+  const dot = document.getElementById('update-dot');
+  const ts = document.getElementById('update-timestamp');
+  dot.classList.remove('stale','fail');
+  if(status === 'ok'){
+    ts.textContent = when.toLocaleString('pt-BR', {dateStyle:'short', timeStyle:'medium'});
+  } else if(status === 'example'){
+    dot.classList.add('stale');
+    ts.textContent = 'dados de exemplo — fonte real não configurada';
+  } else {
+    dot.classList.add('fail');
+    ts.textContent = 'falha ao atualizar (' + when.toLocaleString('pt-BR', {dateStyle:'short', timeStyle:'medium'}) + ')';
+  }
+}
+
+/* =========================================================
+   RENDER — TAB 1
+   ========================================================= */
+function renderKPIs(containerId, kpis){
+  const el = document.getElementById(containerId);
+  el.innerHTML = kpis.map(k => `
+    <div class="kpi">
+      <div class="kpi-label">${k.label}</div>
+      <div class="kpi-value">${k.value}</div>
+      <div class="kpi-delta ${k.trend}">${k.trend === 'up' ? '▲' : k.trend === 'down' ? '▼' : '–'} ${k.delta}</div>
+    </div>
+  `).join('');
+}
+
+function renderBestPractices(items){
+  document.getElementById('best-practices-list').innerHTML = items.map(i => `
+    <li>${i.text}<br><span class="tag-why">${i.why}</span></li>
+  `).join('');
+}
+
+function renderActions(containerId, actions){
+  document.getElementById(containerId).innerHTML = actions.map(a => `
+    <div class="action-card">
+      <span class="priority ${a.priority}">${a.priority === 'high' ? 'ALTA' : a.priority === 'med' ? 'MÉDIA' : 'BAIXA'}</span>
+      <div>
+        <div class="action-title">${a.title}</div>
+        <div class="action-why">${a.why}</div>
+      </div>
+    </div>
+  `).join('');
+}
+
+function getYourPriceForSku(skuId, store){
+  const entry = EXAMPLE_YOUR_PRICES[skuId];
+  if(!entry) return null;
+  if(store === 'all'){
+    const l1 = entry.loja1, l2 = entry.loja2;
+    const totalVendas = (l1.vendas_dia||0) + (l2.vendas_dia||0);
+    // preço consolidado = média ponderada simples entre as lojas que vendem o item
+    const ativos = [l1, l2].filter(l => l.preco > 0);
+    const precoMedio = ativos.length ? ativos.reduce((s,l)=>s+l.preco,0)/ativos.length : 0;
+    return {preco:precoMedio, vendas_dia:totalVendas};
+  }
+  return entry[store];
+}
+
+function matchCompetitorToSku(tamanhoDetectado){
+  const skuId = COMPETITOR_SKU_MAP[tamanhoDetectado];
+  return SKU_CATALOG.find(s => s.id === skuId) || null;
+}
+
+function renderMonitorCards(competitors){
+  const el = document.getElementById('monitor-grid');
+  el.innerHTML = competitors.map(c => {
+    const matchedSku = matchCompetitorToSku(c.tamanho_detectado);
+    const yourData = matchedSku ? getYourPriceForSku(matchedSku.id, 'all') : null;
+    const compareLine = (yourData && yourData.preco > 0)
+      ? `<div class="mc-footer"><span>Seu equivalente (${matchedSku.tamanho} kit ${matchedSku.kit}): R$ ${yourData.preco.toFixed(2)}</span></div>`
+      : `<div class="mc-footer"><span style="color:var(--text-dim);">Sem SKU equivalente mapeado no seu catálogo</span></div>`;
+    return `
+    <div class="monitor-card threat-${c.threat}">
+      <div class="mc-head">
+        <div>
+          <div class="mc-name">${c.nome}</div>
+          <div class="mc-sku">${c.sku_texto}</div>
+        </div>
+        <span class="threat-pill threat-${c.threat}">${c.threat === 'high' ? 'Alta ameaça' : c.threat === 'med' ? 'Média' : 'Baixa'}</span>
+      </div>
+      <div class="mc-stats">
+        <div class="mc-stat"><div class="mc-stat-label">Preço</div><div class="mc-stat-value">R$ ${Number(c.preco).toFixed(2)}</div></div>
+        <div class="mc-stat"><div class="mc-stat-label">Vendas/dia</div><div class="mc-stat-value">${c.vendas_dia}</div></div>
+        <div class="mc-stat"><div class="mc-stat-label">Vendas/semana</div><div class="mc-stat-value">${c.vendas_semana}</div></div>
+        <div class="mc-stat"><div class="mc-stat-label">Vendas/mês</div><div class="mc-stat-value">${c.vendas_mes}</div></div>
+      </div>
+      ${compareLine}
+      <div class="mc-footer">
+        <span>Atualizado via monitoramento</span>
+        <a href="${c.url}" target="_blank">Ver anúncio →</a>
+      </div>
+    </div>
+  `;
+  }).join('');
+}
+
+let currentStoreTab1 = 'all';
+
+function renderSKUTable(competitors){
+  const tbody = document.querySelector('#table-skus tbody');
+  // Para cada SKU do seu catálogo que tem ao menos um concorrente mapeado, monta a linha
+  const rows = [];
+  SKU_CATALOG.forEach(sku => {
+    const yourData = getYourPriceForSku(sku.id, currentStoreTab1);
+    if(!yourData || yourData.preco === 0) return; // SKU não vendido nessa loja — não exibe
+    const matchedCompetitors = competitors.filter(c => COMPETITOR_SKU_MAP[c.tamanho_detectado] === sku.id);
+    if(matchedCompetitors.length === 0){
+      rows.push({sku, yourData, competitor:null});
+    } else {
+      matchedCompetitors.forEach(c => rows.push({sku, yourData, competitor:c}));
+    }
+  });
+
+  if(rows.length === 0){
+    tbody.innerHTML = `<tr><td colspan="7" class="empty-state">Nenhum SKU com dados para esta loja.</td></tr>`;
+    return;
+  }
+
+  tbody.innerHTML = rows.map(r => {
+    const label = `${r.sku.tamanho} (kit ${r.sku.kit})`;
+    if(!r.competitor){
+      return `
+      <tr>
+        <td>${label}</td>
+        <td>R$ ${r.yourData.preco.toFixed(2)}</td>
+        <td>${r.yourData.vendas_dia}</td>
+        <td colspan="3" style="color:var(--text-dim); font-style:italic;">Nenhum concorrente monitorado neste tamanho ainda</td>
+        <td>—</td>
+      </tr>`;
+    }
+    const youHigher = r.yourData.preco > r.competitor.preco;
+    const posLabel = youHigher ? '↑ você está mais caro' : '↓ você está mais barato';
+    const posClass = youHigher ? 'val-down' : 'val-up';
+    return `
+      <tr>
+        <td>${label}</td>
+        <td>R$ ${r.yourData.preco.toFixed(2)}</td>
+        <td>${r.yourData.vendas_dia}</td>
+        <td>${r.competitor.nome}</td>
+        <td>R$ ${Number(r.competitor.preco).toFixed(2)}</td>
+        <td>${r.competitor.vendas_dia}</td>
+        <td class="${posClass}">${posLabel}</td>
+      </tr>`;
+  }).join('');
+}
+
+document.querySelectorAll('.store-active-tab1').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.store-active-tab1').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    currentStoreTab1 = btn.dataset.store;
+    renderSKUTable(window.__lastCompetitorsData || EXAMPLE_COMPETITORS);
+  });
+});
+
+/* =========================================================
+   RENDER — TAB 2 (dados reais do Google Sheets)
+   Colunas: date, shop, impressions, clicks, ctr_pct, cost,
+            gmv, roas, cpc, orders, conversion_rate
+   ========================================================= */
+let currentPeriod = 7;
+let currentStore = 'all';
+let __storeRows = []; // dados reais carregados
+
+function fmt(v, decimals=2){ return Number(v||0).toFixed(decimals); }
+function fmtBRL(v){ return 'R$ ' + fmt(v,2).replace('.',','); }
+function fmtInt(v){ return Math.round(Number(v||0)).toLocaleString('pt-BR'); }
+
+function filterRows(rows){
+  let filtered = rows.filter(r => Number(r.impressions||0) + Number(r.cost||0) + Number(r.gmv||0) > 0);
+  if(currentStore !== 'all'){
+    const label = currentStore === 'loja1' ? 'Loja 1' : 'Loja 2';
+    filtered = filtered.filter(r => (r.shop||'').trim() === label);
+  }
+  if(currentPeriod > 0){
+    const sorted = [...filtered].sort((a,b) => b.date.localeCompare(a.date));
+    const dates = [...new Set(sorted.map(r=>r.date))].slice(0, currentPeriod);
+    filtered = filtered.filter(r => dates.includes(r.date));
+  }
+  return filtered.sort((a,b) => b.date.localeCompare(a.date) || a.shop.localeCompare(b.shop));
+}
+
+function renderRealKPIs(rows){
+  const totCost  = rows.reduce((s,r) => s + Number(r.cost||0), 0);
+  const totGMV   = rows.reduce((s,r) => s + Number(r.gmv||0), 0);
+  const totOrders= rows.reduce((s,r) => s + Number(r.orders||0), 0);
+  const totImpr  = rows.reduce((s,r) => s + Number(r.impressions||0), 0);
+  const totClicks= rows.reduce((s,r) => s + Number(r.clicks||0), 0);
+  const roas     = totCost > 0 ? (totGMV / totCost) : 0;
+  const ctr      = totImpr > 0 ? (totClicks / totImpr * 100) : 0;
+  const kpis = [
+    {label:"ROAS (período)", value: roas > 0 ? roas.toFixed(2)+'x' : '—', delta:"GMV / Custo Ads", trend: roas >= 3 ? 'up' : roas > 0 ? 'flat' : 'flat'},
+    {label:"Custo Ads (R$)", value: fmtBRL(totCost).replace('R$ ','R$ '), delta:"período selecionado", trend:"flat"},
+    {label:"GMV gerado (R$)", value: fmtBRL(totGMV).replace('R$ ','R$ '), delta:"receita atribuída", trend: totGMV > 0 ? 'up' : 'flat'},
+    {label:"Pedidos", value: fmtInt(totOrders), delta:"período selecionado", trend:"flat"},
+    {label:"Impressões", value: fmtInt(totImpr), delta:"período selecionado", trend:"flat"},
+    {label:"CTR médio", value: ctr.toFixed(2)+'%', delta:"cliques / impressões", trend: ctr >= 1 ? 'up' : 'flat'},
+  ];
+  renderKPIs('kpi-grid-tab2', kpis);
+}
+
+function renderPerformanceTable(rows){
+  const tbody = document.querySelector('#table-actions tbody');
+  if(rows.length === 0){
+    tbody.innerHTML = '<tr><td colspan="11" class="empty-state">Nenhum dado para este filtro.</td></tr>';
+    return;
+  }
+  tbody.innerHTML = rows.map(r => {
+    const roas = Number(r.roas||0);
+    const roasClass = roas >= 4 ? 'val-up' : roas >= 2 ? '' : roas > 0 ? 'val-down' : '';
+    const roasLabel = roas > 0 ? roas.toFixed(2)+'x' : '—';
+    const gmv = Number(r.gmv||0);
+    return `<tr>
+      <td>${r.date||'—'}</td>
+      <td>${r.shop||'—'}</td>
+      <td>${fmtInt(r.impressions)}</td>
+      <td>${fmtInt(r.clicks)}</td>
+      <td>${fmt(r.ctr_pct,2)}%</td>
+      <td>${fmtBRL(r.cost)}</td>
+      <td class="${gmv > 0 ? 'val-up' : ''}">${fmtBRL(gmv)}</td>
+      <td class="${roasClass}">${roasLabel}</td>
+      <td>${fmtBRL(r.cpc)}</td>
+      <td>${fmtInt(r.orders)}</td>
+      <td>${fmt(r.conversion_rate,2)}%</td>
+    </tr>`;
+  }).join('');
+}
+
+function refreshTab2(){
+  const rows = filterRows(__storeRows);
+  if(__storeRows.length > 0){
+    renderRealKPIs(rows);
+    renderPerformanceTable(rows);
+  } else {
+    renderKPIs('kpi-grid-tab2', EXAMPLE_KPI_TAB2);
+    renderExampleActionsTable();
+  }
+}
+
+function renderExampleActionsTable(){
+  // fallback com dados de exemplo (estrutura antiga simplificada)
+  const tbody = document.querySelector('#table-actions tbody');
+  tbody.innerHTML = '<tr><td colspan="11" class="empty-state">Aguardando dados reais da planilha…</td></tr>';
+}
+
+document.querySelectorAll('.period-active').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.period-active').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    currentPeriod = Number(btn.dataset.period);
+    refreshTab2();
+  });
+});
+
+document.querySelectorAll('.store-active').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.store-active').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    currentStore = btn.dataset.store;
+    refreshTab2();
+  });
+});
+
+/* =========================================================
+   INIT
+   ========================================================= */
+async function initDashboard(){
+  // TAB 1 — concorrentes
+  let competitorsData = EXAMPLE_COMPETITORS;
+  const fetched1 = await fetchSheetData(SHEET_URL_COMPETITORS);
+  if(fetched1 && !fetched1.error){
+    competitorsData = fetched1;
+    document.getElementById('banner-tab1').style.display = 'none';
+  }
+  renderBestPractices(EXAMPLE_BEST_PRACTICES);
+  renderActions('actions-list', EXAMPLE_ACTIONS_TAB1);
+  renderKPIs('kpi-grid-tab1', EXAMPLE_KPI_TAB1);
+  window.__lastCompetitorsData = competitorsData;
+  renderMonitorCards(competitorsData);
+  renderSKUTable(competitorsData);
+
+  // TAB 2 — performance real
+  const fetched2 = await fetchSheetData(SHEET_URL_STORES);
+  if(fetched2 && !fetched2.error && Array.isArray(fetched2) && fetched2.length > 0){
+    __storeRows = fetched2;
+    document.getElementById('banner-tab2').style.display = 'none';
+  }
+  refreshTab2();
+  renderActions('actions-list-tab2', EXAMPLE_ACTIONS_TAB2);
+
+  // UPDATE INDICATOR
+  const anyRealData = (fetched1 && !fetched1.error) || (fetched2 && !fetched2.error);
+  const anyFailure  = (SHEET_URL_COMPETITORS && fetched1 && fetched1.error) ||
+                      (SHEET_URL_STORES      && fetched2 && fetched2.error);
+  if(anyFailure){
+    setUpdateIndicator('fail', new Date());
+  } else if(anyRealData){
+    setUpdateIndicator('ok', new Date());
+  } else {
+    setUpdateIndicator('example', new Date());
+  }
+}
+</script>
+</body>
+</html>
