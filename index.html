@@ -806,25 +806,42 @@ const EXAMPLE_ACTIONS_TAB2 = [
    FETCH DE DADOS (Google Sheets CSV) COM FALLBACK
    ========================================================= */
 function parseCSV(text){
+  // Normaliza quebras de linha
+  text = text.replace(/\r\n/g,'\n').replace(/\r/g,'\n');
   const lines = text.trim().split('\n');
-  const headers = lines[0].split(',').map(h => h.trim().replace(/^"|"$/g,''));
-  return lines.slice(1).map(line => {
-    // split respeitando campos entre aspas
-    const cells = [];
-    let cur = '', inQ = false;
-    for(let ch of line){
-      if(ch === '"'){ inQ = !inQ; }
-      else if(ch === ',' && !inQ){ cells.push(cur); cur = ''; }
-      else { cur += ch; }
-    }
-    cells.push(cur);
+  const headers = splitCSVLine(lines[0]);
+  return lines.slice(1).filter(l => l.trim()).map(line => {
+    const cells = splitCSVLine(line);
     const obj = {};
-    headers.forEach((h, i) => {
-      let v = (cells[i] || '').trim().replace(/^"|"$/g,'');
-      obj[h] = v;
-    });
+    headers.forEach((h, i) => { obj[h] = (cells[i] || '').trim(); });
     return obj;
   });
+}
+
+function splitCSVLine(line){
+  const cells = [];
+  let cur = '', inQ = false;
+  for(let i = 0; i < line.length; i++){
+    const ch = line[i];
+    if(ch === '"'){
+      if(inQ && line[i+1] === '"'){ cur += '"'; i++; } // aspas escapadas
+      else { inQ = !inQ; }
+    } else if(ch === ',' && !inQ){
+      cells.push(cur);
+      cur = '';
+    } else {
+      cur += ch;
+    }
+  }
+  cells.push(cur);
+  return cells;
+}
+
+function parseBR(v){
+  if(v === null || v === undefined || v === '') return 0;
+  // Remove aspas, R$, espaços e converte vírgula decimal para ponto
+  const s = String(v).replace(/"/g,'').replace(/R\$\s*/,'').replace(/\s/g,'').replace(',','.');
+  return parseFloat(s) || 0;
 }
 
 async function fetchSheetData(url){
@@ -917,11 +934,6 @@ function matchCompetitorToSku(tamanhoDetectado){
 }
 
 /* ── helpers para dados reais ── */
-function parseBR(v){
-  // converte tanto '225.59' quanto '225,59' para número
-  if(!v) return 0;
-  return parseFloat(String(v).replace(',','.')) || 0;
-}
 function fmtBRLTab1(v){ return 'R$ ' + parseBR(v).toFixed(2).replace('.',','); }
 
 function processarDadosReais(rows){
