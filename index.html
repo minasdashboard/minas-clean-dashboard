@@ -649,7 +649,7 @@ footer.app-footer{
 /* =========================================================
    CONFIGURAÇÃO — TROCAR PELAS URLs REAIS QUANDO DISPONÍVEIS
    ========================================================= */
-const SHEET_URL_COMPETITORS = "https://docs.google.com/spreadsheets/d/1IXN9PtJnqJfXDevC7Iy1FTBbrMF-rquXFZdlaaIRTDI/export?format=csv&gid=983454970"; // URL CSV publicada do Google Sheets (Browse AI)
+const SHEET_URL_COMPETITORS = "https://docs.google.com/spreadsheets/d/1IXN9PtJnqJfXDevC7Iy1FTBbrMF-rquXFZdlaaIRTDI/export?format=csv&gid=983454970";
 const SHEET_URL_STORES = "https://docs.google.com/spreadsheets/d/1IXN9PtJnqJfXDevC7Iy1FTBbrMF-rquXFZdlaaIRTDI/export?format=csv&gid=635079664";      // URL CSV publicada do Google Sheets (Shopee Open API) — preço/vendas reais por SKU e por loja
 const PASSWORD = "minasclean2026"; // Troque esta senha. É visível no código-fonte (ver aviso na tela de login).
 
@@ -906,14 +906,102 @@ function matchCompetitorToSku(tamanhoDetectado){
   return SKU_CATALOG.find(s => s.id === skuId) || null;
 }
 
-function renderMonitorCards(competitors){
+/* ── helpers para dados reais ── */
+function fmtBRLTab1(v){ return 'R$ ' + Number(v||0).toFixed(2).replace('.',','); }
+
+function processarDadosReais(rows){
+  // Agrupa por loja+produto, pega dados mais recentes
+  const hoje = rows.reduce((max, r) => r.data > max ? r.data : max, '');
+  const recentes = rows.filter(r => r.data === hoje && r.termo_busca !== 'minha_loja');
+  const minhaLoja = rows.filter(r => r.data === hoje && r.termo_busca === 'minha_loja');
+
+  // Agrupa concorrentes por loja
+  const lojas = {};
+  recentes.forEach(r => {
+    const nome = r.loja || 'Desconhecida';
+    if(!lojas[nome]) lojas[nome] = {nome, produtos:[], rating:0, avaliacoes:0};
+    lojas[nome].produtos.push(r);
+  });
+
+  return {lojas: Object.values(lojas), minhaLoja, recentes, hoje};
+}
+
+function calcularThreat(loja, meuPrecoMedio){
+  const precos = loja.produtos.map(p => Number(p.preco_min||0)).filter(p => p > 0);
+  if(precos.length === 0) return 'low';
+  const precoMin = Math.min(...precos);
+  const vendas = loja.produtos.reduce((s,p) => s + (p.vendas_estimadas||'').replace('k+','000').replace('+','') * 1 || 0, 0);
+  if(precoMin < meuPrecoMedio * 0.85) return 'high';
+  if(precoMin < meuPrecoMedio * 0.95) return 'med';
+  return 'low';
+}
+
+function renderMonitorCards(competitorsData){
   const el = document.getElementById('monitor-grid');
-  el.innerHTML = competitors.map(c => {
-    const matchedSku = matchCompetitorToSku(c.tamanho_detectado);
-    const yourData = matchedSku ? getYourPriceForSku(matchedSku.id, 'all') : null;
-    const compareLine = (yourData && yourData.preco > 0)
-      ? `<div class="mc-footer"><span>Seu equivalente (${matchedSku.tamanho} kit ${matchedSku.kit}): R$ ${yourData.preco.toFixed(2)}</span></div>`
-      : `<div class="mc-footer"><span style="color:var(--text-dim);">Sem SKU equivalente mapeado no seu catálogo</span></div>`;
+  
+  // Se são dados reais do Sheets (array de objetos com coluna 'data')
+  if(Array.isArray(competitorsData) && competitorsData[0] && competitorsData[0].data){
+    const {lojas, minhaLoja, hoje} = processarDadosReais(competitorsData);
+    
+    // Preço médio da minha loja
+    const meusPrecos = minhaLoja.map(p => Number(p.preco_min||0)).filter(p => p > 0);
+    const meuPrecoMedio = meusPrecos.length > 0 ? meusPrecos.reduce((a,b)=>a+b,0)/meusPrecos.length : 200;
+
+    if(lojas.length === 0){
+      el.innerHTML = '<div style="color:var(--text-dim);padding:20px;">Nenhum dado de concorrentes disponível.</div>';
+      return;
+    }
+
+    el.innerHTML = lojas.map(loja => {
+      const threat = calcularThreat(loja, meuPrecoMedio);
+      const precos = loja.produtos.map(p => Number(p.preco_min||0)).filter(p=>p>0);
+      const precoMin = precos.length ? Math.min(...precos) : 0;
+      const precoMax = precos.length ? Math.max(...precos) : 0;
+      const ratings = loja.produtos.map(p => Number(p.rating||0)).filter(r=>r>0);
+      const ratingMedio = ratings.length ? (ratings.reduce((a,b)=>a+b,0)/ratings.length).toFixed(1) : '—';
+      const vendas = loja.produtos.map(p => p.vendas_estimadas||'').filter(v=>v).join(', ').split(',')[0] || '—';
+      const urlProduto = loja.produtos[0]?.url || '#';
+      const difPreco = precoMin > 0 ? ((precoMin - meuPrecoMedio) / meuPrecoMedio * 100).toFixed(0) : 0;
+      const difLabel = difPreco > 0 ? `+${difPreco}% vs seu preço médio` : `${difPreco}% vs seu preço médio`;
+      const difClass = difPreco < -5 ? 'val-down' : difPreco > 5 ? 'val-up' : '';
+      const recomendacao = threat === 'high'
+        ? '⚠️ Preço significativamente abaixo do seu — monitore impacto nas suas vendas'
+        : threat === 'med'
+        ? '👀 Preço levemente abaixo — acompanhe a evolução'
+        : '✅ Sem ameaça de preço imediata';
+
+      return `
+      <div class="monitor-card threat-${threat}">
+        <div class="mc-head">
+          <div>
+            <div class="mc-name">${loja.nome}</div>
+            <div class="mc-sku">${loja.produtos.length} SKUs monitorados · Atualizado ${hoje}</div>
+          </div>
+          <span class="threat-pill threat-${threat}">${threat === 'high' ? 'Alta ameaça' : threat === 'med' ? 'Média' : 'Baixa'}</span>
+        </div>
+        <div class="mc-stats">
+          <div class="mc-stat"><div class="mc-stat-label">Preço mín.</div><div class="mc-stat-value">${fmtBRLTab1(precoMin)}</div></div>
+          <div class="mc-stat"><div class="mc-stat-label">Preço máx.</div><div class="mc-stat-value">${fmtBRLTab1(precoMax)}</div></div>
+          <div class="mc-stat"><div class="mc-stat-label">Rating médio</div><div class="mc-stat-value">⭐ ${ratingMedio}</div></div>
+          <div class="mc-stat"><div class="mc-stat-label">Vendas est.</div><div class="mc-stat-value">${vendas}</div></div>
+        </div>
+        <div class="mc-footer">
+          <span class="${difClass}">${difLabel}</span>
+        </div>
+        <div class="mc-footer" style="margin-top:6px;font-size:12px;color:var(--text-dim);">
+          ${recomendacao}
+        </div>
+        <div class="mc-footer">
+          <span>${loja.produtos.length} produtos encontrados</span>
+          <a href="${urlProduto}" target="_blank">Ver loja →</a>
+        </div>
+      </div>`;
+    }).join('');
+    return;
+  }
+
+  // Fallback: dados de exemplo (formato antigo)
+  el.innerHTML = competitorsData.map(c => {
     return `
     <div class="monitor-card threat-${c.threat}">
       <div class="mc-head">
@@ -929,13 +1017,11 @@ function renderMonitorCards(competitors){
         <div class="mc-stat"><div class="mc-stat-label">Vendas/semana</div><div class="mc-stat-value">${c.vendas_semana}</div></div>
         <div class="mc-stat"><div class="mc-stat-label">Vendas/mês</div><div class="mc-stat-value">${c.vendas_mes}</div></div>
       </div>
-      ${compareLine}
       <div class="mc-footer">
-        <span>Atualizado via monitoramento</span>
+        <span>Dados de exemplo</span>
         <a href="${c.url}" target="_blank">Ver anúncio →</a>
       </div>
-    </div>
-  `;
+    </div>`;
   }).join('');
 }
 
@@ -1117,10 +1203,61 @@ async function initDashboard(){
     competitorsData = fetched1;
     document.getElementById('banner-tab1').style.display = 'none';
   }
-  renderBestPractices(EXAMPLE_BEST_PRACTICES);
-  renderActions('actions-list', EXAMPLE_ACTIONS_TAB1);
-  renderKPIs('kpi-grid-tab1', EXAMPLE_KPI_TAB1);
   window.__lastCompetitorsData = competitorsData;
+
+  // Se tem dados reais, calcula KPIs e insights reais
+  if(Array.isArray(competitorsData) && competitorsData[0] && competitorsData[0].data){
+    const hoje = competitorsData.reduce((max, r) => r.data > max ? r.data : max, '');
+    const recentes = competitorsData.filter(r => r.data === hoje && r.termo_busca !== 'minha_loja');
+    const minhaLoja = competitorsData.filter(r => r.data === hoje && r.termo_busca === 'minha_loja');
+
+    const meusPrecos = minhaLoja.map(p => Number(p.preco_min||0)).filter(p=>p>0);
+    const meuPrecoMedio = meusPrecos.length > 0 ? meusPrecos.reduce((a,b)=>a+b,0)/meusPrecos.length : 0;
+
+    const precosConc = recentes.map(p => Number(p.preco_min||0)).filter(p=>p>0);
+    const precoMedConc = precosConc.length > 0 ? precosConc.reduce((a,b)=>a+b,0)/precosConc.length : 0;
+    const posPreco = meuPrecoMedio > 0 && precoMedConc > 0
+      ? ((meuPrecoMedio - precoMedConc) / precoMedConc * 100).toFixed(0)
+      : '—';
+    const posLabel = posPreco !== '—'
+      ? (posPreco > 0 ? `+${posPreco}% acima da mediana` : `${posPreco}% abaixo da mediana`)
+      : 'Sem dados próprios';
+
+    const lojas = [...new Set(recentes.map(r => r.loja))].filter(Boolean);
+    const undercut = recentes.filter(r => Number(r.preco_min||0) < meuPrecoMedio * 0.95).length;
+
+    const kpisReais = [
+      {label:"Seu preço médio vs mercado", value: meuPrecoMedio > 0 ? 'R$ ' + meuPrecoMedio.toFixed(2).replace('.',',') : '—', delta: posLabel, trend: posPreco > 5 ? 'down' : posPreco < -5 ? 'up' : 'flat'},
+      {label:"Concorrentes monitorados", value: String(lojas.length), delta:"lojas ativas hoje", trend:"flat"},
+      {label:"SKUs mais baratos que você", value: String(undercut), delta:"requerem atenção", trend: undercut > 5 ? 'down' : 'flat'},
+      {label:"Produtos coletados hoje", value: String(recentes.length), delta:"via Apify · " + hoje, trend:"flat"},
+    ];
+    renderKPIs('kpi-grid-tab1', kpisReais);
+
+    // Gera insights reais baseados nos dados
+    const topBaratos = recentes
+      .filter(r => Number(r.preco_min||0) > 0 && meuPrecoMedio > 0)
+      .sort((a,b) => Number(a.preco_min) - Number(b.preco_min))
+      .slice(0, 3);
+
+    const bestPracticesReais = topBaratos.map(r => ({
+      text: `<b>${r.loja}</b> vende "${(r.produto||'').slice(0,60)}" por <b>R$ ${Number(r.preco_min).toFixed(2).replace('.',',')}</b> — ${Number(r.vendas_estimadas||0)||r.vendas_estimadas||'?'} vendas estimadas`,
+      why: `Rating: ⭐ ${r.rating||'—'} · ${r.qtd_avaliacoes||'—'} avaliações · ${r.is_on_sale === 'Sim' ? 'Em promoção' : 'Sem promoção'}`
+    }));
+
+    const actionsReais = [];
+    if(undercut > 3) actionsReais.push({priority:'high', title:`${undercut} SKUs de concorrentes abaixo do seu preço médio`, why:`Seu preço médio é R$ ${meuPrecoMedio.toFixed(2)} — ${undercut} produtos de concorrentes estão mais baratos. Avalie ajuste pontual nos SKUs de maior volume.`});
+    if(lojas.length > 0) actionsReais.push({priority:'med', title:`Monitorar ${lojas.slice(0,3).join(', ')}`, why:`Lojas mais ativas hoje. Verifique tendência de preço nas próximas coletas (seg/qua/sex).`});
+    actionsReais.push({priority:'low', title:'Coleta automática ativa', why:`Dados atualizados automaticamente 3x/semana via GitHub Actions. Próxima coleta: segunda-feira 07:00.`});
+
+    renderBestPractices(bestPracticesReais.length > 0 ? bestPracticesReais : EXAMPLE_BEST_PRACTICES);
+    renderActions('actions-list', actionsReais.length > 0 ? actionsReais : EXAMPLE_ACTIONS_TAB1);
+  } else {
+    renderBestPractices(EXAMPLE_BEST_PRACTICES);
+    renderActions('actions-list', EXAMPLE_ACTIONS_TAB1);
+    renderKPIs('kpi-grid-tab1', EXAMPLE_KPI_TAB1);
+  }
+
   renderMonitorCards(competitorsData);
   renderSKUTable(competitorsData);
 
