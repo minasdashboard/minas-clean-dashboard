@@ -829,15 +829,25 @@ function parseCSV(text){
 
 async function fetchSheetData(url){
   if(!url) return null;
-  try{
-    const res = await fetch(url, {cache:"no-store"});
-    if(!res.ok) throw new Error("HTTP " + res.status);
-    const text = await res.text();
-    return parseCSV(text);
-  } catch(err){
-    console.error("Falha ao buscar planilha:", err);
-    return {error: err.message};
+  // Tenta direto primeiro; se falhar por CORS, usa proxy
+  const proxies = [
+    url,
+    'https://corsproxy.io/?' + encodeURIComponent(url),
+    'https://api.allorigins.win/raw?url=' + encodeURIComponent(url),
+  ];
+  for(const u of proxies){
+    try{
+      const res = await fetch(u, {cache:"no-store"});
+      if(!res.ok) throw new Error("HTTP " + res.status);
+      const text = await res.text();
+      if(text.trim().length < 10) throw new Error('Resposta vazia');
+      return parseCSV(text);
+    } catch(err){
+      console.warn("Tentativa falhou:", u, err.message);
+    }
   }
+  console.error("Todas as tentativas falharam para:", url);
+  return {error: 'Failed to fetch'};
 }
 
 function setUpdateIndicator(status, when){
