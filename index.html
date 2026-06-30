@@ -917,7 +917,12 @@ function matchCompetitorToSku(tamanhoDetectado){
 }
 
 /* ── helpers para dados reais ── */
-function fmtBRLTab1(v){ return 'R$ ' + Number(v||0).toFixed(2).replace('.',','); }
+function parseBR(v){
+  // converte tanto '225.59' quanto '225,59' para número
+  if(!v) return 0;
+  return parseFloat(String(v).replace(',','.')) || 0;
+}
+function fmtBRLTab1(v){ return 'R$ ' + parseBR(v).toFixed(2).replace('.',','); }
 
 function processarDadosReais(rows){
   // Agrupa por loja+produto, pega dados mais recentes
@@ -937,7 +942,7 @@ function processarDadosReais(rows){
 }
 
 function calcularThreat(loja, meuPrecoMedio){
-  const precos = loja.produtos.map(p => Number(p.preco_min||0)).filter(p => p > 0);
+  const precos = loja.produtos.map(p => parseBR(p.preco_min)).filter(p => p > 0);
   if(precos.length === 0) return 'low';
   const precoMin = Math.min(...precos);
   const vendas = loja.produtos.reduce((s,p) => s + (p.vendas_estimadas||'').replace('k+','000').replace('+','') * 1 || 0, 0);
@@ -954,7 +959,7 @@ function renderMonitorCards(competitorsData){
     const {lojas, minhaLoja, hoje} = processarDadosReais(competitorsData);
     
     // Preço médio da minha loja
-    const meusPrecos = minhaLoja.map(p => Number(p.preco_min||0)).filter(p => p > 0);
+    const meusPrecos = minhaLoja.map(p => parseBR(p.preco_min)).filter(p => p > 0);
     const meuPrecoMedio = meusPrecos.length > 0 ? meusPrecos.reduce((a,b)=>a+b,0)/meusPrecos.length : 200;
 
     if(lojas.length === 0){
@@ -964,7 +969,7 @@ function renderMonitorCards(competitorsData){
 
     el.innerHTML = lojas.map(loja => {
       const threat = calcularThreat(loja, meuPrecoMedio);
-      const precos = loja.produtos.map(p => Number(p.preco_min||0)).filter(p=>p>0);
+      const precos = loja.produtos.map(p => parseBR(p.preco_min)).filter(p=>p>0);
       const precoMin = precos.length ? Math.min(...precos) : 0;
       const precoMax = precos.length ? Math.max(...precos) : 0;
       const ratings = loja.produtos.map(p => Number(p.rating||0)).filter(r=>r>0);
@@ -1221,10 +1226,10 @@ async function initDashboard(){
     const recentes = competitorsData.filter(r => r.data === hoje && r.termo_busca !== 'minha_loja');
     const minhaLoja = competitorsData.filter(r => r.data === hoje && r.termo_busca === 'minha_loja');
 
-    const meusPrecos = minhaLoja.map(p => Number(p.preco_min||0)).filter(p=>p>0);
+    const meusPrecos = minhaLoja.map(p => parseBR(p.preco_min)).filter(p=>p>0);
     const meuPrecoMedio = meusPrecos.length > 0 ? meusPrecos.reduce((a,b)=>a+b,0)/meusPrecos.length : 0;
 
-    const precosConc = recentes.map(p => Number(p.preco_min||0)).filter(p=>p>0);
+    const precosConc = recentes.map(p => parseBR(p.preco_min)).filter(p=>p>0);
     const precoMedConc = precosConc.length > 0 ? precosConc.reduce((a,b)=>a+b,0)/precosConc.length : 0;
     const posPreco = meuPrecoMedio > 0 && precoMedConc > 0
       ? ((meuPrecoMedio - precoMedConc) / precoMedConc * 100).toFixed(0)
@@ -1234,7 +1239,7 @@ async function initDashboard(){
       : 'Sem dados próprios';
 
     const lojas = [...new Set(recentes.map(r => r.loja))].filter(Boolean);
-    const undercut = recentes.filter(r => Number(r.preco_min||0) < meuPrecoMedio * 0.95).length;
+    const undercut = recentes.filter(r => parseBR(r.preco_min) < meuPrecoMedio * 0.95).length;
 
     const kpisReais = [
       {label:"Seu preço médio vs mercado", value: meuPrecoMedio > 0 ? 'R$ ' + meuPrecoMedio.toFixed(2).replace('.',',') : '—', delta: posLabel, trend: posPreco > 5 ? 'down' : posPreco < -5 ? 'up' : 'flat'},
@@ -1246,7 +1251,7 @@ async function initDashboard(){
 
     // Gera insights reais baseados nos dados
     const topBaratos = recentes
-      .filter(r => Number(r.preco_min||0) > 0 && meuPrecoMedio > 0)
+      .filter(r => parseBR(r.preco_min) > 0 && meuPrecoMedio > 0)
       .sort((a,b) => Number(a.preco_min) - Number(b.preco_min))
       .slice(0, 3);
 
