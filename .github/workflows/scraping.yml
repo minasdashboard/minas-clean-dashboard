@@ -1,0 +1,31 @@
+name: Minas Clean - Scraping Concorrentes
+
+on:
+  schedule:
+    - cron: '0 10 * * 1'  # Segunda-feira 07:00 BRT (10:00 UTC)
+    - cron: '0 10 * * 3'  # Quarta-feira  07:00 BRT
+    - cron: '0 10 * * 5'  # Sexta-feira   07:00 BRT
+  workflow_dispatch:       # permite rodar manualmente pelo GitHub
+
+jobs:
+  scraping:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repositório
+        uses: actions/checkout@v4
+
+      - name: Instalar Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Instalar dependências
+        run: |
+          pip install requests gspread google-auth
+
+      - name: Rodar scraping
+        env:
+          APIFY_TOKEN: ${{ secrets.APIFY_TOKEN }}
+          GOOGLE_CREDENTIALS: ${{ secrets.GOOGLE_CREDENTIALS }}
+        run: python scripts/apify_to_sheets.py
