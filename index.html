@@ -933,6 +933,22 @@ function matchCompetitorToSku(tamanhoDetectado){
   return SKU_CATALOG.find(s => s.id === skuId) || null;
 }
 
+function extrairTamanho(nomeProduto){
+  // Extrai dimensões como "40x40", "60x80" etc do nome do produto
+  if(!nomeProduto) return null;
+  const m = String(nomeProduto).match(/(\d{2,3})[xX](\d{2,3})/);
+  if(!m) return null;
+  return m[1] + 'x' + m[2];
+}
+
+function mapearProdutoAoSku(produto){
+  // Tenta mapear pelo nome do produto (campo 'produto' do CSV)
+  const tamanho = extrairTamanho(produto.produto || produto.name || '');
+  if(!tamanho) return null;
+  const skuId = COMPETITOR_SKU_MAP[tamanho];
+  return SKU_CATALOG.find(s => s.id === skuId) || null;
+}
+
 /* ── helpers para dados reais ── */
 function fmtBRLTab1(v){ return 'R$ ' + parseBR(v).toFixed(2).replace('.',','); }
 
@@ -1056,11 +1072,73 @@ let currentStoreTab1 = 'all';
 
 function renderSKUTable(competitors){
   const tbody = document.querySelector('#table-skus tbody');
-  // Para cada SKU do seu catálogo que tem ao menos um concorrente mapeado, monta a linha
+
+  // Se dados reais do Sheets
+  if(Array.isArray(competitors) && competitors[0] && competitors[0].data){
+    const hoje = competitors.reduce((max,r) => r.data > max ? r.data : max, '');
+    const recentes = competitors.filter(r => r.data === hoje && r.termo_busca !== 'minha_loja');
+    const rows = [];
+
+    SKU_CATALOG.forEach(sku => {
+      const yourData = getYourPriceForSku(sku.id, currentStoreTab1);
+      if(!yourData || yourData.preco === 0) return;
+
+      // Filtra produtos do concorrente que têm o mesmo tamanho
+      const concorrentes = recentes.filter(p => {
+        const tam = extrairTamanho(p.produto || '');
+        return tam && COMPETITOR_SKU_MAP[tam] === sku.id;
+      });
+
+      if(concorrentes.length === 0){
+        rows.push({sku, yourData, competitor: null});
+      } else {
+        // Pega o mais barato como referência
+        const maisBarato = concorrentes.sort((a,b) => parseBR(a.preco_min) - parseBR(b.preco_min))[0];
+        rows.push({sku, yourData, competitor: maisBarato, total: concorrentes.length});
+      }
+    });
+
+    if(rows.length === 0){
+      tbody.innerHTML = '<tr><td colspan="8" class="empty-state">Nenhum SKU com dados.</td></tr>';
+      return;
+    }
+
+    tbody.innerHTML = rows.map(r => {
+      const label = `${r.sku.tamanho} (kit ${r.sku.kit})`;
+      if(!r.competitor){
+        return `<tr>
+          <td>${label}</td>
+          <td>R$ ${r.yourData.preco.toFixed(2).replace('.',',')}</td>
+          <td>${r.yourData.vendas_dia}</td>
+          <td colspan="4" style="color:var(--text-dim);font-style:italic;">Nenhum concorrente encontrado neste tamanho</td>
+          <td>—</td>
+        </tr>`;
+      }
+      const precoConc = parseBR(r.competitor.preco_min);
+      const youHigher = r.yourData.preco > precoConc;
+      const diff = ((r.yourData.preco - precoConc) / precoConc * 100).toFixed(0);
+      const posLabel = youHigher ? `↑ ${diff}% mais caro` : `↓ ${Math.abs(diff)}% mais barato`;
+      const posClass = youHigher ? 'val-down' : 'val-up';
+      const acao = youHigher && diff > 15 ? '⚠️ Considere reduzir preço' : youHigher ? '👀 Monitore' : '✅ Preço competitivo';
+      return `<tr>
+        <td>${label}</td>
+        <td>R$ ${r.yourData.preco.toFixed(2).replace('.',',')}</td>
+        <td>${r.yourData.vendas_dia}</td>
+        <td>${r.competitor.loja}</td>
+        <td>R$ ${precoConc.toFixed(2).replace('.',',')} <small>(${r.total} concorrentes)</small></td>
+        <td>${r.competitor.vendas_estimadas || '—'}</td>
+        <td class="${posClass}">${posLabel}</td>
+        <td>${acao}</td>
+      </tr>`;
+    }).join('');
+    return;
+  }
+
+  // Fallback dados de exemplo
   const rows = [];
   SKU_CATALOG.forEach(sku => {
     const yourData = getYourPriceForSku(sku.id, currentStoreTab1);
-    if(!yourData || yourData.preco === 0) return; // SKU não vendido nessa loja — não exibe
+    if(!yourData || yourData.preco === 0) return;
     const matchedCompetitors = competitors.filter(c => COMPETITOR_SKU_MAP[c.tamanho_detectado] === sku.id);
     if(matchedCompetitors.length === 0){
       rows.push({sku, yourData, competitor:null});
