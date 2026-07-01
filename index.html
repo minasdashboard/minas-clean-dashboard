@@ -706,6 +706,18 @@ const COMPETITOR_SKU_MAP = {
   "70x100": "70x100-4",
 };
 
+// Mapa de normalização de tamanhos (variações de nomenclatura dos concorrentes)
+const TAMANHO_ALIASES = {
+  "35x35": ["35x35","35*35","35cm","35 x 35","3535"],
+  "40x40": ["40x40","40*40","40cm","40 x 40","4040"],
+  "40x60": ["40x60","40*60","40 x 60","4060"],
+  "35x55": ["35x55","35*55","35 x 55","3555"],
+  "50x70": ["50x70","50*70","50 x 70","5070"],
+  "60x80": ["60x80","60*80","60 x 80","6080"],
+  "70x100": ["70x100","70*100","70 x 100","70100"],
+  "30x30": ["30x30","30*30","30cm","30 x 30","3030"],
+};
+
 /* =========================================================
    GATE DE SENHA
    ========================================================= */
@@ -934,11 +946,26 @@ function matchCompetitorToSku(tamanhoDetectado){
 }
 
 function extrairTamanho(nomeProduto){
-  // Extrai dimensões como "40x40", "60x80" etc do nome do produto
   if(!nomeProduto) return null;
-  const m = String(nomeProduto).match(/(\d{2,3})[xX](\d{2,3})/);
-  if(!m) return null;
-  return m[1] + 'x' + m[2];
+  const s = String(nomeProduto).toLowerCase();
+  
+  // Tenta match direto: "40x40", "40X40", "40*40", "40 x 40"
+  const m = s.match(/(\d{2,3})\s*[xX\*]\s*(\d{2,3})/);
+  if(m){
+    const tam = m[1] + 'x' + m[2];
+    // Verifica se existe no mapa de aliases
+    for(const [canonical, aliases] of Object.entries(TAMANHO_ALIASES)){
+      if(aliases.some(a => tam === a || s.includes(a))) return canonical;
+    }
+    return tam;
+  }
+  
+  // Tenta match por aliases no texto completo
+  for(const [canonical, aliases] of Object.entries(TAMANHO_ALIASES)){
+    if(aliases.some(a => s.includes(a.toLowerCase()))) return canonical;
+  }
+  
+  return null;
 }
 
 function mapearProdutoAoSku(produto){
