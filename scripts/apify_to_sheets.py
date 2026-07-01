@@ -92,6 +92,43 @@ def rodar_apify(termo):
     print(f"  ✅ {len(items)} produtos coletados")
     return items
 
+def rodar_apify_loja(shop_url):
+    """Coleta produtos de uma loja específica via shopUrls."""
+    print(f"  🏪 Coletando loja: {shop_url}")
+    url = f"https://api.apify.com/v2/acts/{ACTOR_ID}/runs?token={APIFY_TOKEN}"
+    payload = {
+        "shopUrls": [shop_url],
+        "maxItems": MAX_ITENS,
+        "countryCode": "BR",
+    }
+    resp = requests.post(url, json=payload, timeout=30)
+    resp.raise_for_status()
+    run = resp.json()["data"]
+    run_id = run["id"]
+    print(f"  Run ID: {run_id} — aguardando...")
+
+    for _ in range(18):
+        time.sleep(10)
+        status_url = f"https://api.apify.com/v2/actor-runs/{run_id}?token={APIFY_TOKEN}"
+        info = requests.get(status_url, timeout=15).json()["data"]
+        status = info["status"]
+        print(f"  Status: {status}")
+        if status in ("SUCCEEDED", "FAILED", "ABORTED", "TIMED-OUT"):
+            break
+
+    if status != "SUCCEEDED":
+        print(f"  ⚠️ Run falhou: {status}")
+        return []
+
+    dataset_id = info["defaultDatasetId"]
+    items_url = (
+        f"https://api.apify.com/v2/datasets/{dataset_id}/items"
+        f"?token={APIFY_TOKEN}&format=json&clean=true"
+    )
+    items = requests.get(items_url, timeout=30).json()
+    print(f"  ✅ {len(items)} produtos coletados da loja")
+    return items
+
 def conectar_sheets():
     scopes = [
         "https://www.googleapis.com/auth/spreadsheets",
@@ -187,9 +224,9 @@ def main():
             ]
             todas_linhas.append(linha)
 
-    # Coleta da própria loja (Minas Clean)
+    # Coleta da própria loja (Minas Clean) — usa shopUrl para buscar por loja
     print(f"\n  🏪 Coletando minha loja: {MINHA_LOJA_URL}")
-    meus_produtos = rodar_apify(MINHA_LOJA_URL)
+    meus_produtos = rodar_apify_loja(MINHA_LOJA_URL)
     for p in meus_produtos:
         linha = [
             hoje,
