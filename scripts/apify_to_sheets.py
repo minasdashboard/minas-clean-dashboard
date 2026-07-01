@@ -32,13 +32,16 @@ if _CREDS_ENV:
 else:
     SERVICE_ACCOUNT_FILE = r"C:\Users\joaom\OneDrive\Documentos\shopee_ads_dashboard\mnt\user-data\outputs\shopee_ads_dashboard\scripts\credentials.json"
 
-# Buscas de concorrentes + sua própria loja
+# Buscas de concorrentes — todos os tamanhos do catálogo Minas Clean
 TERMOS_BUSCA = [
-    "pano microfibra 60x80",
-    "pano microfibra 40x60",
+    "pano microfibra 35x35",
     "pano microfibra 40x40",
-    "kit pano microfibra multiuso",
-    "pano chao microfibra gigante",
+    "pano microfibra 40x60",
+    "pano microfibra 35x55",
+    "pano microfibra 50x70",
+    "pano microfibra 60x80",
+    "pano chao microfibra gigante 70x100",
+    "pano microfibra 30x30",
 ]
 
 # URL da sua loja — coletada separadamente com tag "minha_loja"
