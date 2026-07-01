@@ -982,61 +982,89 @@ function calcularThreat(loja, meuPrecoMedio){
 function renderMonitorCards(competitorsData){
   const el = document.getElementById('monitor-grid');
   
-  // Se são dados reais do Sheets (array de objetos com coluna 'data')
+  // Se são dados reais do Sheets — mostra card POR TAMANHO/SKU
   if(Array.isArray(competitorsData) && competitorsData[0] && competitorsData[0].data){
-    const {lojas, minhaLoja, hoje} = processarDadosReais(competitorsData);
-    
-    // Preço médio da minha loja
-    const meusPrecos = minhaLoja.map(p => parseBR(p.preco_min)).filter(p => p > 0);
-    const meuPrecoMedio = meusPrecos.length > 0 ? meusPrecos.reduce((a,b)=>a+b,0)/meusPrecos.length : 200;
+    const hoje = competitorsData.reduce((max,r) => r.data > max ? r.data : max, '');
+    const recentes = competitorsData.filter(r => r.data === hoje && r.termo_busca !== 'minha_loja');
 
-    if(lojas.length === 0){
+    if(recentes.length === 0){
       el.innerHTML = '<div style="color:var(--text-dim);padding:20px;">Nenhum dado de concorrentes disponível.</div>';
       return;
     }
 
-    el.innerHTML = lojas.map(loja => {
-      const threat = calcularThreat(loja, meuPrecoMedio);
-      const precos = loja.produtos.map(p => parseBR(p.preco_min)).filter(p=>p>0);
-      const precoMin = precos.length ? Math.min(...precos) : 0;
-      const precoMax = precos.length ? Math.max(...precos) : 0;
-      const ratings = loja.produtos.map(p => Number(p.rating||0)).filter(r=>r>0);
+    // Agrupa por tamanho detectado
+    const porTamanho = {};
+    recentes.forEach(p => {
+      const tam = extrairTamanho(p.produto || '');
+      if(!tam) return;
+      if(!porTamanho[tam]) porTamanho[tam] = [];
+      porTamanho[tam].push(p);
+    });
+
+    // Filtra apenas tamanhos que existem no seu catálogo
+    const tamanhosRelevantes = Object.keys(porTamanho).filter(t => COMPETITOR_SKU_MAP[t]);
+    
+    if(tamanhosRelevantes.length === 0){
+      el.innerHTML = '<div style="color:var(--text-dim);padding:20px;">Nenhum tamanho do catálogo encontrado nos dados coletados.</div>';
+      return;
+    }
+
+    el.innerHTML = tamanhosRelevantes.sort().map(tam => {
+      const produtos = porTamanho[tam];
+      const skuId = COMPETITOR_SKU_MAP[tam];
+      const meuPreco = skuId ? (getYourPriceForSku(skuId, 'all')?.preco || 0) : 0;
+
+      const sorted = [...produtos].sort((a,b) => parseBR(a.preco_min) - parseBR(b.preco_min));
+      const precoMin = parseBR(sorted[0].preco_min);
+      const precoMax = parseBR(sorted[sorted.length-1].preco_min);
+      const precoMedio = sorted.reduce((s,p) => s + parseBR(p.preco_min), 0) / sorted.length;
+
+      const maisVendido = [...produtos].sort((a,b) => {
+        const va = parseInt((a.vendas_estimadas||'0').replace(/[^0-9]/g,'')) || 0;
+        const vb = parseInt((b.vendas_estimadas||'0').replace(/[^0-9]/g,'')) || 0;
+        return vb - va;
+      })[0];
+
+      const ratings = produtos.map(p => parseFloat(p.rating||0)).filter(r=>r>0);
       const ratingMedio = ratings.length ? (ratings.reduce((a,b)=>a+b,0)/ratings.length).toFixed(1) : '—';
-      const vendas = loja.produtos.map(p => p.vendas_estimadas||'').filter(v=>v).join(', ').split(',')[0] || '—';
-      const urlProduto = loja.produtos[0]?.url || '#';
-      const difPreco = precoMin > 0 ? ((precoMin - meuPrecoMedio) / meuPrecoMedio * 100).toFixed(0) : 0;
-      const difLabel = difPreco > 0 ? `+${difPreco}% vs seu preço médio` : `${difPreco}% vs seu preço médio`;
-      const difClass = difPreco < -5 ? 'val-down' : difPreco > 5 ? 'val-up' : '';
+
+      let threat = 'low', posLabel = '—', posClass = '';
+      if(meuPreco > 0 && precoMin > 0){
+        const diff = ((meuPreco - precoMin) / precoMin * 100);
+        if(diff > 20){ threat = 'high'; posLabel = `↑ ${diff.toFixed(0)}% mais caro que o mínimo`; posClass = 'val-down'; }
+        else if(diff > 5){ threat = 'med'; posLabel = `↑ ${diff.toFixed(0)}% acima do mínimo`; }
+        else if(diff < -5){ posLabel = `↓ ${Math.abs(diff).toFixed(0)}% abaixo do mínimo`; posClass = 'val-up'; }
+        else { posLabel = `≈ preço alinhado ao mercado`; posClass = 'val-up'; }
+      }
+
       const recomendacao = threat === 'high'
-        ? '⚠️ Preço significativamente abaixo do seu — monitore impacto nas suas vendas'
+        ? `⚠️ Seu preço R$ ${meuPreco.toFixed(2).replace('.',',')} está acima do concorrente mais barato — avalie redução`
         : threat === 'med'
-        ? '👀 Preço levemente abaixo — acompanhe a evolução'
-        : '✅ Sem ameaça de preço imediata';
+        ? `👀 ${sorted.filter(p=>parseBR(p.preco_min)<meuPreco).length} concorrente(s) mais baratos — monitore`
+        : `✅ Preço competitivo neste tamanho`;
+
+      const lojas = [...new Set(produtos.map(p=>p.loja).filter(Boolean))];
 
       return `
       <div class="monitor-card threat-${threat}">
         <div class="mc-head">
           <div>
-            <div class="mc-name">${loja.nome}</div>
-            <div class="mc-sku">${loja.produtos.length} SKUs monitorados · Atualizado ${hoje}</div>
+            <div class="mc-name">Pano ${tam}</div>
+            <div class="mc-sku">${produtos.length} produtos · ${lojas.length} lojas · ${hoje}</div>
           </div>
-          <span class="threat-pill threat-${threat}">${threat === 'high' ? 'Alta ameaça' : threat === 'med' ? 'Média' : 'Baixa'}</span>
+          <span class="threat-pill threat-${threat}">${threat === 'high' ? 'Alta ameaça' : threat === 'med' ? 'Atenção' : 'Competitivo'}</span>
         </div>
         <div class="mc-stats">
-          <div class="mc-stat"><div class="mc-stat-label">Preço mín.</div><div class="mc-stat-value">${fmtBRLTab1(precoMin)}</div></div>
-          <div class="mc-stat"><div class="mc-stat-label">Preço máx.</div><div class="mc-stat-value">${fmtBRLTab1(precoMax)}</div></div>
-          <div class="mc-stat"><div class="mc-stat-label">Rating médio</div><div class="mc-stat-value">⭐ ${ratingMedio}</div></div>
-          <div class="mc-stat"><div class="mc-stat-label">Vendas est.</div><div class="mc-stat-value">${vendas}</div></div>
+          <div class="mc-stat"><div class="mc-stat-label">Mín. mercado</div><div class="mc-stat-value">${fmtBRLTab1(precoMin)}</div></div>
+          <div class="mc-stat"><div class="mc-stat-label">Máx. mercado</div><div class="mc-stat-value">${fmtBRLTab1(precoMax)}</div></div>
+          <div class="mc-stat"><div class="mc-stat-label">Seu preço</div><div class="mc-stat-value ${meuPreco > precoMedio ? 'val-down' : 'val-up'}">${meuPreco > 0 ? fmtBRLTab1(meuPreco) : '—'}</div></div>
+          <div class="mc-stat"><div class="mc-stat-label">Maior vendedor</div><div class="mc-stat-value">${maisVendido.vendas_estimadas||'—'} est.</div></div>
         </div>
+        <div class="mc-footer"><span class="${posClass}">${posLabel}</span></div>
+        <div class="mc-footer" style="margin-top:6px;font-size:12px;color:var(--text-dim);">${recomendacao}</div>
         <div class="mc-footer">
-          <span class="${difClass}">${difLabel}</span>
-        </div>
-        <div class="mc-footer" style="margin-top:6px;font-size:12px;color:var(--text-dim);">
-          ${recomendacao}
-        </div>
-        <div class="mc-footer">
-          <span>${loja.produtos.length} produtos encontrados</span>
-          <a href="${urlProduto}" target="_blank">Ver loja →</a>
+          <span>⭐ ${ratingMedio} · mais barato: ${sorted[0].loja}</span>
+          <a href="${sorted[0].url||'#'}" target="_blank">Ver →</a>
         </div>
       </div>`;
     }).join('');
