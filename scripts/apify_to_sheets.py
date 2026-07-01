@@ -45,7 +45,8 @@ TERMOS_BUSCA = [
 ]
 
 # URL da sua loja — coletada separadamente com tag "minha_loja"
-MINHA_LOJA_URL = "https://shopee.com.br/minasclean"
+MINHA_LOJA_URL  = "https://shopee.com.br/minasclean"
+MINHA_LOJA2_URL = "https://shopee.com.br/maximahome"
 MINHA_LOJA_TAG = "minha_loja"
 
 MAX_ITENS = 20  # por termo — ajuste conforme créditos disponíveis
@@ -224,17 +225,42 @@ def main():
             ]
             todas_linhas.append(linha)
 
-    # Coleta da própria loja (Minas Clean) — usa shopUrl para buscar por loja
-    print(f"\n  🏪 Coletando minha loja: {MINHA_LOJA_URL}")
+    # Coleta Loja 1 (minasclean)
+    print(f"\n  🏪 Coletando Loja 1: {MINHA_LOJA_URL}")
     meus_produtos = rodar_apify_loja(MINHA_LOJA_URL)
     for p in meus_produtos:
+        # Usar originalPrice se disponível (preço sem desconto = preço base)
+        # O price pode ser com desconto temporário; originalPrice é o preço real do anúncio
+        preco_real = p.get("originalPrice") or p.get("price", 0)
         linha = [
             hoje,
-            MINHA_LOJA_TAG,
-            p.get("shopName", "minasclean"),
+            "minha_loja",
+            "minasclean",
             p.get("name", "")[:120],
-            p.get("price", 0),
-            p.get("priceMax") or p.get("price", 0),
+            preco_real,
+            p.get("priceMax") or preco_real,
+            p.get("discountPercent", 0),
+            p.get("historicalSoldEstimated", ""),
+            p.get("rating", 0),
+            p.get("reviewCount", 0),
+            p.get("stock", 0),
+            "Sim" if p.get("isOnSale") else "Não",
+            p.get("url", ""),
+        ]
+        todas_linhas.append(linha)
+
+    # Coleta Loja 2 (maximahome)
+    print(f"\n  🏪 Coletando Loja 2: {MINHA_LOJA2_URL}")
+    meus_produtos2 = rodar_apify_loja(MINHA_LOJA2_URL)
+    for p in meus_produtos2:
+        preco_real = p.get("originalPrice") or p.get("price", 0)
+        linha = [
+            hoje,
+            "minha_loja2",
+            "maximahome",
+            p.get("name", "")[:120],
+            preco_real,
+            p.get("priceMax") or preco_real,
             p.get("discountPercent", 0),
             p.get("historicalSoldEstimated", ""),
             p.get("rating", 0),
