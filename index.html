@@ -472,6 +472,7 @@ footer.app-footer{
   nav.tabs{padding:0 16px;}
 }
 </style>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.4/chart.umd.min.js"></script>
 </head>
 <body>
 
@@ -550,7 +551,22 @@ footer.app-footer{
       </div>
       <div class="monitor-grid" id="monitor-grid"></div>
 
-      <div class="section-title"><span class="num">05</span> Detalhamento por SKU — Comparativo de Vendas</div>
+      <div class="section-title"><span class="num">05</span> Variação de Preço no Mês — Você vs. Concorrentes (por SKU)</div>
+      <div class="summary-box" style="margin-bottom:16px;">
+        <div style="display:flex;gap:12px;flex-wrap:wrap;align-items:center;margin-bottom:12px;">
+          <label for="chart-sku-select" style="font-size:12px;color:var(--text-dim);">SKU (tamanho + kit):</label>
+          <select id="chart-sku-select" style="background:var(--bg2,#1a1a1a);color:var(--text,#fff);border:1px solid var(--line);border-radius:6px;padding:6px 10px;font-size:13px;min-width:220px;"></select>
+          <span id="chart-sku-empty" style="font-size:12px;color:var(--text-dim);display:none;">Sem histórico suficiente para este SKU ainda.</span>
+        </div>
+        <div style="position:relative;height:320px;">
+          <canvas id="price-history-chart"></canvas>
+        </div>
+        <div style="font-size:11px;color:var(--text-dim);margin-top:8px;">
+          Linha do concorrente = menor preço do dia entre todos os anúncios com o mesmo tamanho e mesma quantidade de kit. Só entram no gráfico datas em que houve coleta.
+        </div>
+      </div>
+
+      <div class="section-title"><span class="num">06</span> Detalhamento por SKU — Comparativo de Vendas</div>
       <div class="store-toggle">
         <button class="store-active-tab1 active" data-store="all">Consolidado (Loja 1 + Loja 2)</button>
         <button class="store-active-tab1" data-store="loja1">Loja 1</button>
@@ -948,7 +964,12 @@ function getYourPriceForSku(skuId, store){
   if(lojaData.length > 0){
     const sku = SKU_CATALOG.find(s => s.id === skuId);
     if(sku){
-      const matches = lojaData.filter(p => extrairTamanho(p.produto||'') === sku.tamanho);
+      const matches = lojaData.filter(p => {
+        if(extrairTamanho(p.produto||'') !== sku.tamanho) return false;
+        const kitDetectado = extrairQtdKit(p.produto||'');
+        // exige kit igual quando conseguimos identificar; se não identificou, não descarta
+        return kitDetectado == null || kitDetectado === sku.kit;
+      });
       if(matches.length > 0){
         const precos = matches.map(p => parseBR(p.preco_min)).filter(p => p > 0);
         if(precos.length > 0) return {preco: Math.min(...precos), vendas_dia: 0};
@@ -966,6 +987,22 @@ function getYourPriceForSku(skuId, store){
     return {preco:precoMedio, vendas_dia:totalVendas};
   }
   return entry[store];
+}
+
+function getYourUnitPriceForTamanho(tamanho, store){
+  // Preço por unidade (peça) mais barato que você vende para esse tamanho,
+  // considerando TODOS os seus kits daquele tamanho. Serve de base de comparação
+  // justa quando o concorrente vende um kit com quantidade diferente da sua.
+  const skusDoTamanho = SKU_CATALOG.filter(s => s.tamanho === tamanho && s.kit > 0);
+  let melhor = null;
+  skusDoTamanho.forEach(sku => {
+    const r = getYourPriceForSku(sku.id, store);
+    if(r && r.preco > 0){
+      const unit = r.preco / sku.kit;
+      if(melhor === null || unit < melhor) melhor = unit;
+    }
+  });
+  return melhor; // preço por peça, ou null se não há dado
 }
 
 function matchCompetitorToSku(tamanhoDetectado){
@@ -996,10 +1033,35 @@ function extrairTamanho(nomeProduto){
   return null;
 }
 
+function extrairQtdKit(nomeProduto){
+  if(!nomeProduto) return null;
+  const s = String(nomeProduto).toLowerCase();
+
+  // "kit 10", "kit c/10", "kit com 10", "kit10"
+  let m = s.match(/kit\s*(?:c\/|com)?\s*(\d{1,3})\b/);
+  if(m) return parseInt(m[1], 10);
+
+  // "10 unidades", "10un", "10 und", "10 pçs", "10 pcs", "10 peças", "10 panos", "c/10 un"
+  m = s.match(/(?:c\/|com)?\s*(\d{1,3})\s*(?:un\.?|und\.?|unid\.?|unidades?|pçs?|pcs?|peças?|pecas?|panos?)\b/);
+  if(m) return parseInt(m[1], 10);
+
+  // "avulso", "unitário", "peça única" — item individual, kit = 1
+  if(/\bavulso\b|\bunit[aá]rio\b|\bpe[çc]a\s*[uú]nica\b/.test(s)) return 1;
+
+  return null; // não foi possível identificar a quantidade
+}
+
 function mapearProdutoAoSku(produto){
-  // Tenta mapear pelo nome do produto (campo 'produto' do CSV)
-  const tamanho = extrairTamanho(produto.produto || produto.name || '');
+  // Tenta mapear pelo nome do produto (campo 'produto' do CSV) por tamanho + kit
+  const nome = produto.produto || produto.name || '';
+  const tamanho = extrairTamanho(nome);
+  const kit = extrairQtdKit(nome);
   if(!tamanho) return null;
+  if(kit != null){
+    const exato = SKU_CATALOG.find(s => s.tamanho === tamanho && s.kit === kit);
+    if(exato) return exato;
+  }
+  // fallback: mantém compatibilidade, mas isso mistura kits diferentes — evitar em comparações de preço
   const skuId = COMPETITOR_SKU_MAP[tamanho];
   return SKU_CATALOG.find(s => s.id === skuId) || null;
 }
@@ -1046,34 +1108,45 @@ function renderMonitorCards(competitorsData){
       return;
     }
 
-    // Agrupa por tamanho
-    const porTamanho = {};
+    // Agrupa por tamanho + quantidade de kit — kits com quantidades diferentes
+    // NÃO são comparáveis por preço total, só por preço/peça.
+    const porGrupo = {};
     recentes.forEach(p => {
       const tam = extrairTamanho(p.produto || '');
-      if(!tam || !COMPETITOR_SKU_MAP[tam]) return;
-      if(!porTamanho[tam]) porTamanho[tam] = [];
-      porTamanho[tam].push(p);
+      if(!tam) return;
+      const kit = extrairQtdKit(p.produto || '');
+      const grupoKey = tam + '__' + (kit != null ? kit : '?');
+      if(!porGrupo[grupoKey]) porGrupo[grupoKey] = {tam, kit, produtos:[]};
+      porGrupo[grupoKey].produtos.push(p);
     });
 
     const skuFiltro = window.__skuFiltroAtivo || 'all';
-    const tamanhosExibir = Object.keys(porTamanho).filter(t => skuFiltro === 'all' || t === skuFiltro).sort();
+    const gruposExibir = Object.values(porGrupo)
+      .filter(g => skuFiltro === 'all' || g.tam === skuFiltro)
+      .sort((a,b) => a.tam === b.tam ? (a.kit||999) - (b.kit||999) : a.tam.localeCompare(b.tam));
 
-    if(tamanhosExibir.length === 0){
+    if(gruposExibir.length === 0){
       el.innerHTML = '<div style="color:var(--text-dim);padding:20px;">Nenhum dado para este tamanho ainda — aguarde a próxima coleta.</div>';
       return;
     }
 
-    el.innerHTML = tamanhosExibir.map(tam => {
-      const produtos = porTamanho[tam];
-      const skuId = COMPETITOR_SKU_MAP[tam];
-      const meuPreco = skuId ? (getYourPriceForSku(skuId, 'all')?.preco || 0) : 0;
+    el.innerHTML = gruposExibir.map(grupo => {
+      const {tam, kit, produtos} = grupo;
+      // Só usa SKU exato (mesmo tamanho E mesma quantidade de kit) para comparar preço total
+      const skuExato = kit != null ? SKU_CATALOG.find(s => s.tamanho === tam && s.kit === kit) : null;
+      const skuId = skuExato ? skuExato.id : null;
+
+      const meuPreco   = skuId ? (getYourPriceForSku(skuId, 'all')?.preco || 0) : 0;
       const meuPrecoL1 = skuId ? (getYourPriceForSku(skuId, 'loja1')?.preco || 0) : 0;
       const meuPrecoL2 = skuId ? (getYourPriceForSku(skuId, 'loja2')?.preco || 0) : 0;
+      // Preço por peça — comparação válida mesmo quando o kit do concorrente é diferente do seu
+      const meuUnitPreco = getYourUnitPriceForTamanho(tam, 'all');
 
       const sorted = [...produtos].sort((a,b) => parseBR(a.preco_min) - parseBR(b.preco_min));
       const precoMin = parseBR(sorted[0].preco_min);
       const precoMax = parseBR(sorted[sorted.length-1].preco_min);
       const precoMedio = sorted.reduce((s,p) => s + parseBR(p.preco_min), 0) / sorted.length;
+      const precoMinUnit = kit ? precoMin / kit : null;
 
       const maisVendido = [...produtos].sort((a,b) => {
         const va = parseInt((a.vendas_estimadas||'0').replace(/[^0-9]/g,'')) || 0;
@@ -1087,16 +1160,21 @@ function renderMonitorCards(competitorsData){
       // Top 3 mais baratos
       const top3 = sorted.slice(0,3);
 
+      // Base de comparação: preço total só se o kit bater exato; senão, preço/peça x seu kit
+      const baseComparacao = skuId ? meuPreco : (meuUnitPreco && kit ? meuUnitPreco * kit : 0);
+
       let threat = 'low', posLabel = '—', posClass = '';
-      if(meuPreco > 0 && precoMin > 0){
-        const diff = ((meuPreco - precoMin) / precoMin * 100);
+      if(baseComparacao > 0 && precoMin > 0){
+        const diff = ((baseComparacao - precoMin) / precoMin * 100);
         if(diff > 20){ threat = 'high'; posLabel = `↑ ${diff.toFixed(0)}% acima do mínimo`; posClass = 'val-down'; }
         else if(diff > 5){ threat = 'med'; posLabel = `↑ ${diff.toFixed(0)}% acima do mínimo`; posClass = ''; }
         else if(diff < -5){ posLabel = `↓ ${Math.abs(diff).toFixed(0)}% abaixo do mínimo`; posClass = 'val-up'; }
         else { posLabel = `≈ alinhado ao mercado`; posClass = 'val-up'; }
       }
 
-      const recomendacao = threat === 'high'
+      const recomendacao = !skuId
+        ? (kit != null ? `ℹ️ Você não vende kit de ${kit} peças nesse tamanho — veja o preço/peça abaixo` : `ℹ️ Quantidade do kit não identificada no anúncio do concorrente`)
+        : threat === 'high'
         ? `⚠️ Seu preço está acima — ${sorted.filter(p=>parseBR(p.preco_min)<meuPreco).length} concorrentes mais baratos`
         : threat === 'med'
         ? `👀 Monitore — ${sorted.filter(p=>parseBR(p.preco_min)<meuPreco).length} concorrente(s) abaixo do seu preço`
@@ -1113,20 +1191,26 @@ function renderMonitorCards(competitorsData){
           <a href="${p.url||'#'}" target="_blank" style="margin-left:8px;color:var(--text-dim);font-size:11px;">Ver→</a>
         </div>`).join('');
 
+      const kitTitulo = kit != null ? `Kit ${kit}` : 'Kit não identificado';
+
       return `
       <div class="monitor-card threat-${threat}">
         <div class="mc-head">
           <div>
-            <div class="mc-name">Pano Microfibra ${tam}</div>
+            <div class="mc-name">Pano Microfibra ${tam} · ${kitTitulo}</div>
             <div class="mc-sku">${produtos.length} produtos · ${lojas.length} lojas · ${hoje}</div>
           </div>
           <span class="threat-pill threat-${threat}">${threat === 'high' ? 'Alta ameaça' : threat === 'med' ? 'Atenção' : 'Competitivo'}</span>
         </div>
         <div class="mc-stats">
-          <div class="mc-stat"><div class="mc-stat-label">Mín. mercado</div><div class="mc-stat-value">${fmtBRLTab1(precoMin)}</div></div>
-          <div class="mc-stat"><div class="mc-stat-label">Máx. mercado</div><div class="mc-stat-value">${fmtBRLTab1(precoMax)}</div></div>
-          <div class="mc-stat"><div class="mc-stat-label">Loja 1 (minasclean)</div><div class="mc-stat-value ${meuPrecoL1 > precoMedio ? 'val-down' : meuPrecoL1 > 0 ? 'val-up' : ''}">${meuPrecoL1 > 0 ? fmtBRLTab1(meuPrecoL1) : '—'}</div></div>
-          <div class="mc-stat"><div class="mc-stat-label">Loja 2 (maximahome)</div><div class="mc-stat-value ${meuPrecoL2 > precoMedio ? 'val-down' : meuPrecoL2 > 0 ? 'val-up' : ''}">${meuPrecoL2 > 0 ? fmtBRLTab1(meuPrecoL2) : '—'}</div></div>
+          <div class="mc-stat"><div class="mc-stat-label">Mín. mercado (kit)</div><div class="mc-stat-value">${fmtBRLTab1(precoMin)}</div></div>
+          <div class="mc-stat"><div class="mc-stat-label">Máx. mercado (kit)</div><div class="mc-stat-value">${fmtBRLTab1(precoMax)}</div></div>
+          <div class="mc-stat"><div class="mc-stat-label">Loja 1${skuId ? '' : ' (kit dif.)'}</div><div class="mc-stat-value ${meuPrecoL1 > precoMedio ? 'val-down' : meuPrecoL1 > 0 ? 'val-up' : ''}">${meuPrecoL1 > 0 ? fmtBRLTab1(meuPrecoL1) : '—'}</div></div>
+          <div class="mc-stat"><div class="mc-stat-label">Loja 2${skuId ? '' : ' (kit dif.)'}</div><div class="mc-stat-value ${meuPrecoL2 > precoMedio ? 'val-down' : meuPrecoL2 > 0 ? 'val-up' : ''}">${meuPrecoL2 > 0 ? fmtBRLTab1(meuPrecoL2) : '—'}</div></div>
+        </div>
+        <div class="mc-footer" style="font-size:11px;">
+          <span>Preço/peça mercado: <b>${precoMinUnit ? fmtBRLTab1(precoMinUnit) : '—'}</b></span>
+          <span>Seu preço/peça: <b>${meuUnitPreco ? fmtBRLTab1(meuUnitPreco) : '—'}</b></span>
         </div>
         <div class="mc-footer"><span class="${posClass}">${posLabel}</span><span>⭐ ${ratingMedio} · ${maisVendido.vendas_estimadas||'—'} maior vendedor</span></div>
         <div style="margin-top:8px;">
@@ -1163,6 +1247,95 @@ function renderMonitorCards(competitorsData){
     </div>`;
   }).join('');
 }
+
+/* =========================================================
+   GRÁFICO — VARIAÇÃO DE PREÇO NO MÊS, POR SKU (TAMANHO + KIT)
+   ========================================================= */
+function populateChartSkuSelect(){
+  const sel = document.getElementById('chart-sku-select');
+  if(!sel) return;
+  const prevValue = sel.value;
+  const opcoes = [...SKU_CATALOG].sort((a,b) => a.tamanho === b.tamanho ? a.kit - b.kit : a.tamanho.localeCompare(b.tamanho));
+  sel.innerHTML = opcoes.map(s => `<option value="${s.id}">${s.tamanho} · Kit ${s.kit}</option>`).join('');
+  if(prevValue && opcoes.some(o => o.id === prevValue)) sel.value = prevValue;
+}
+
+function buildPriceHistorySeries(tamanho, kit){
+  const raw = window.__lastCompetitorsData || [];
+  if(!Array.isArray(raw) || !raw[0] || !raw[0].data) return null;
+
+  const bate = r => extrairTamanho(r.produto || '') === tamanho && extrairQtdKit(r.produto || '') === kit;
+  const concRows = raw.filter(r => r.termo_busca !== 'minha_loja' && r.termo_busca !== 'minha_loja2' && bate(r));
+  const l1Rows   = raw.filter(r => r.termo_busca === 'minha_loja'  && bate(r));
+  const l2Rows   = raw.filter(r => r.termo_busca === 'minha_loja2' && bate(r));
+
+  const datas = [...new Set([...concRows, ...l1Rows, ...l2Rows].map(r => r.data))].sort();
+  if(datas.length === 0) return null;
+
+  const minPorData = (rows, data) => {
+    const precos = rows.filter(r => r.data === data).map(r => parseBR(r.preco_min)).filter(p => p > 0);
+    return precos.length ? Math.min(...precos) : null;
+  };
+
+  return {
+    labels: datas.map(d => { const p = d.split('-'); return p.length === 3 ? `${p[2]}/${p[1]}` : d; }),
+    concorrente: datas.map(d => minPorData(concRows, d)),
+    loja1: datas.map(d => minPorData(l1Rows, d)),
+    loja2: datas.map(d => minPorData(l2Rows, d)),
+  };
+}
+
+function renderPriceHistoryChart(){
+  const sel = document.getElementById('chart-sku-select');
+  const emptyMsg = document.getElementById('chart-sku-empty');
+  const canvas = document.getElementById('price-history-chart');
+  if(!sel || !sel.value || !canvas) return;
+
+  const sku = SKU_CATALOG.find(s => s.id === sel.value);
+  if(!sku) return;
+
+  if(window.__priceChartInstance){ window.__priceChartInstance.destroy(); window.__priceChartInstance = null; }
+
+  const serie = buildPriceHistorySeries(sku.tamanho, sku.kit);
+  const temDado = serie && serie.labels.length > 0 &&
+    (serie.concorrente.some(v => v != null) || serie.loja1.some(v => v != null) || serie.loja2.some(v => v != null));
+
+  if(!temDado){
+    if(emptyMsg) emptyMsg.style.display = 'inline';
+    canvas.style.display = 'none';
+    return;
+  }
+  if(emptyMsg) emptyMsg.style.display = 'none';
+  canvas.style.display = 'block';
+
+  if(typeof Chart === 'undefined'){ console.warn('Chart.js não carregado.'); return; }
+
+  window.__priceChartInstance = new Chart(canvas.getContext('2d'), {
+    type: 'line',
+    data: {
+      labels: serie.labels,
+      datasets: [
+        { label: 'Concorrentes (mín. do dia)', data: serie.concorrente, borderColor: '#ff6b6b', backgroundColor: 'transparent', spanGaps: true, tension: 0.25 },
+        { label: 'Loja 1 (minasclean)',        data: serie.loja1,       borderColor: '#4dabf7', backgroundColor: 'transparent', spanGaps: true, tension: 0.25 },
+        { label: 'Loja 2 (maximahome)',        data: serie.loja2,       borderColor: '#69db7c', backgroundColor: 'transparent', spanGaps: true, tension: 0.25 },
+      ]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: { labels: { color: '#ccc' } },
+        tooltip: { callbacks: { label: ctx => ctx.dataset.label + ': ' + (ctx.parsed.y != null ? fmtBRLTab1(ctx.parsed.y) : '—') } }
+      },
+      scales: {
+        x: { ticks: { color: '#999' }, grid: { color: 'rgba(255,255,255,0.06)' } },
+        y: { ticks: { color: '#999', callback: v => 'R$ ' + v }, grid: { color: 'rgba(255,255,255,0.06)' } }
+      }
+    }
+  });
+}
+
+document.getElementById('chart-sku-select')?.addEventListener('change', renderPriceHistoryChart);
 
 let currentStoreTab1 = 'all';
 
@@ -1478,6 +1651,8 @@ async function initDashboard(){
 
   renderMonitorCards(competitorsData);
   renderSKUTable(competitorsData);
+  populateChartSkuSelect();
+  renderPriceHistoryChart();
 
   // TAB 2 — performance real
   const fetched2 = await fetchSheetData(SHEET_URL_STORES);
