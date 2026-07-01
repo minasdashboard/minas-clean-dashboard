@@ -927,12 +927,23 @@ function renderActions(containerId, actions){
 }
 
 function getYourPriceForSku(skuId, store){
+  // Tenta usar dados reais coletados da minha loja pelo Apify
+  if(window.__minhaLojaData && window.__minhaLojaData.length > 0){
+    const sku = SKU_CATALOG.find(s => s.id === skuId);
+    if(sku){
+      const matches = window.__minhaLojaData.filter(p => extrairTamanho(p.produto||'') === sku.tamanho);
+      if(matches.length > 0){
+        const precos = matches.map(p => parseBR(p.preco_min)).filter(p => p > 0);
+        if(precos.length > 0) return {preco: Math.min(...precos), vendas_dia: 0};
+      }
+    }
+  }
+  // Fallback: dados hardcoded de exemplo
   const entry = EXAMPLE_YOUR_PRICES[skuId];
   if(!entry) return null;
   if(store === 'all'){
     const l1 = entry.loja1, l2 = entry.loja2;
     const totalVendas = (l1.vendas_dia||0) + (l2.vendas_dia||0);
-    // preço consolidado = média ponderada simples entre as lojas que vendem o item
     const ativos = [l1, l2].filter(l => l.preco > 0);
     const precoMedio = ativos.length ? ativos.reduce((s,l)=>s+l.preco,0)/ativos.length : 0;
     return {preco:precoMedio, vendas_dia:totalVendas};
@@ -1364,6 +1375,12 @@ async function initDashboard(){
     document.getElementById('banner-tab1').style.display = 'none';
   }
   window.__lastCompetitorsData = competitorsData;
+  // Salva dados da minha loja para preços reais
+  if(Array.isArray(competitorsData) && competitorsData[0]?.data){
+    const hoje = competitorsData.reduce((max,r) => r.data > max ? r.data : max, '');
+    window.__minhaLojaData = competitorsData.filter(r => r.data === hoje && r.termo_busca === 'minha_loja');
+    if(window.__minhaLojaData.length > 0) console.log('✅ Preços reais da loja carregados:', window.__minhaLojaData.length, 'produtos');
+  }
 
   // Se tem dados reais, calcula KPIs e insights reais
   if(Array.isArray(competitorsData) && competitorsData[0] && competitorsData[0].data){
