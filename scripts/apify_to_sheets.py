@@ -1,7 +1,23 @@
 """
 apify_to_sheets.py — Minas Clean
-Coleta dados de concorrentes via Apify (gio21/shopee-scraper)
-e salva na aba 'concorrentes' do Google Sheets.
+Coleta dados de concorrentes via Apify e salva na aba 'concorrentes' do Google Sheets.
+
+⚠️ 01/07/2026 — DESCOBERTO: o actor gio21/shopee-scraper devolvia DADOS MOCK/FAKE
+(campo _notice = "THIS IS MOCK / SAMPLE DATA — not real Shopee products").
+Trocado para xtracto/shopee-scraper — TESTADO manualmente no Apify Console
+com dado real em 2026-07-01/02:
+  - mode="keyword" ("pano microfibra 35x35"): 5 produtos reais, nomes/preços/
+    URLs batendo com anúncios reais da Shopee Brasil.
+  - mode="shop" (loja "minasclean"): 5 produtos reais, shop_id=1781178701
+    batendo com o Shop ID oficial já validado via API da Shopee.
+Preço vem em CENTAVOS (ex: 2790 = R$ 27,90) — normalizar_item() já converte.
+⚠️ PENDENTE: mode="shop" só devolveu 5 produtos mesmo pedindo 40 — pode não
+respeitar maxProducts. Conferir no primeiro run de produção se cobre os 24
+SKUs ou se falta ajustar (ver nota em rodar_apify_loja()).
+Não tem campo de nome da loja em texto — shopName fica como "Loja #{id}".
+Também foi adicionada detectar_dados_mock(), que aborta a coleta (sem salvar
+nada) se o actor devolver qualquer sinal de dado fake de novo — proteção
+permanente, independente de qual actor estiver configurado.
 
 Uso: python apify_to_sheets.py
 Agendar: todo dia às 06:00 via Agendador de Tarefas do Windows
@@ -17,7 +33,9 @@ from google.oauth2.service_account import Credentials
 # ── CONFIGURAÇÃO ──────────────────────────────────────────────
 # Funciona local (hardcoded) e no GitHub Actions (variável de ambiente)
 APIFY_TOKEN  = os.environ.get("APIFY_TOKEN", "")  # configure via GitHub Secrets
-ACTOR_ID     = "gio21~shopee-scraper"
+
+# Testado com dado real em 2026-07-01 (ver nota acima). Não precisa de cookie.
+ACTOR_ID = "xtracto~shopee-scraper"
 
 SHEET_ID     = "1IXN9PtJnqJfXDevC7Iy1FTBbrMF-rquXFZdlaaIRTDI"
 ABA_NOME     = "concorrentes"
@@ -44,13 +62,129 @@ TERMOS_BUSCA = [
     "pano microfibra 30x30",
 ]
 
-# URL da sua loja — coletada separadamente com tag "minha_loja"
+# URL da sua loja — mantido só como referência/logging
 MINHA_LOJA_URL  = "https://shopee.com.br/minasclean"
 MINHA_LOJA2_URL = "https://shopee.com.br/maximahome"
 MINHA_LOJA_TAG = "minha_loja"
 
-MAX_ITENS = 20  # por termo — ajuste conforme créditos disponíveis
+# ⚠️ 02/07/2026 — mode="shop" do actor xtracto/shopee-scraper está CAPADO em
+# ~5-6 produtos, não importa o valor de maxProducts (testado manualmente,
+# confirmado no log/JSON de 3 runs diferentes). Não dá pra confiar nele pra
+# pegar os 24 SKUs. NOVA ESTRATÉGIA: em vez de uma chamada separada por loja,
+# os shop_id abaixo (confirmados navegando manualmente até um produto de
+# cada loja) são usados pra RECONHECER seus próprios produtos dentro dos
+# resultados normais de busca por palavra-chave (que não tem esse limite).
+# rodar_apify_loja() fica no código só de referência, não é mais chamada.
+MINHA_LOJA_SHOPID  = "1781178701"  # minasclean — confirmado batendo com API oficial da Shopee
+MINHA_LOJA2_SHOPID = "1810599865"  # maximahome — confirmado navegando manualmente até um produto
+
+MAX_ITENS = 20  # por termo de busca de concorrente — ajuste conforme créditos disponíveis
+
+# Você tem até 24 SKUs (variações de tamanho x kit) espalhados entre as duas
+# lojas. 20 poderia deixar SKU de fora numa loja com catálogo cheio — usamos
+# uma margem maior aqui pra garantir que a coleta pega TODOS os seus produtos,
+# não só os mais vendidos/melhor rankeados.
+MAX_ITENS_LOJA = 40  # não usado mais (ver nota acima) — mantido só de referência
 # ─────────────────────────────────────────────────────────────
+
+def detectar_dados_mock(items):
+    """Verifica se o actor devolveu dados FAKE em vez de dados reais da Shopee.
+    Alguns actors da Apify devolvem 'sample/mock data' silenciosamente quando
+    o usuário está em plano gratuito ou quando a raspagem real falha — sem dar
+    erro, só preenchendo os campos com dado inventado (foi o que aconteceu
+    com o gio21/shopee-scraper em 01/07/2026: campo _notice = 'THIS IS MOCK /
+    SAMPLE DATA — not real Shopee products').
+    Se detectarmos qualquer sinal disso, a coleta é abortada SEM salvar nada."""
+    if not items:
+        return False
+    sinais_mock = [
+        "mock", "sample data", "not real", "fake data",
+        "this is a demo", "test data only", "_notice",
+    ]
+    for item in items[:5]:  # checa uma amostra dos primeiros itens
+        texto = json.dumps(item, ensure_ascii=False).lower()
+        if any(s in texto for s in sinais_mock):
+            return True
+    return False
+
+def normalizar_item(raw):
+    """Normaliza um item bruto do actor pra um formato único.
+    Suporta 3 formatos:
+      (a) xtracto/shopee-scraper — CONFIRMADO com dado real em 2026-07-01.
+          Campos flat: item_id, shop_id, name, price, original_price,
+          discount_pct, rating, rating_count, sold_count, url, currency.
+          Preço vem em CENTAVOS (ex: 2790 = R$ 27,90).
+      (b) formato 'item_basic' aninhado (API interna genérica da Shopee,
+          preço em microunidades: R$ real = price / 100000) — fallback.
+      (c) formato 'flat' antigo do gio21 (mock, mantido só por segurança) —
+          fallback final.
+    Se algum campo vier vazio/zero de forma consistente, é sinal de que o
+    nome do campo mudou — conferir com 1 item bruto real de novo."""
+    if "item_id" in raw or "shop_id" in raw:
+        # (a) Formato confirmado do xtracto/shopee-scraper
+        preco = raw.get("price")
+        preco_orig = raw.get("original_price")
+        return {
+            "name": raw.get("name") or "",
+            "price": (preco / 100) if preco not in (None, "") else 0,
+            "priceMax": None,
+            "originalPrice": (preco_orig / 100) if preco_orig not in (None, "") else None,
+            "discountPercent": raw.get("discount_pct") or 0,
+            "isOnSale": bool(raw.get("discount_pct")),
+            "historicalSoldEstimated": raw.get("sold_count") or "",
+            "rating": raw.get("rating") or 0,
+            "reviewCount": raw.get("rating_count") or 0,
+            "stock": raw.get("stock") or 0,
+            "shopName": raw.get("shop_name") or raw.get("shop") or (f"Loja #{raw.get('shop_id')}" if raw.get("shop_id") else ""),
+            "itemid": raw.get("item_id"),
+            "shopid": raw.get("shop_id"),
+            "url": raw.get("url") or "",
+        }
+
+    base = raw.get("item_basic") if isinstance(raw.get("item_basic"), dict) else raw
+
+    def pega(*chaves, default=None):
+        for k in chaves:
+            if k in base and base[k] not in (None, ""):
+                return base[k]
+        return default
+
+    preco_bruto = pega("price", "priceMin")
+    preco_original_bruto = pega("price_before_discount", "originalPrice")
+    # Formato item_basic da Shopee vem em microunidades (ex: 850000 = R$ 8,50 x 100000)
+    eh_microunidade = isinstance(preco_bruto, (int, float)) and preco_bruto and preco_bruto > 100000
+    def conv(v):
+        if v in (None, ""): return None
+        return v / 100000 if eh_microunidade else v
+
+    return {
+        "name":  pega("name", "title", default=""),
+        "price": conv(preco_bruto) or 0,
+        "priceMax": conv(pega("price_max", "priceMax")),
+        "originalPrice": conv(preco_original_bruto),
+        "discountPercent": pega("discount", "discountPercent", "raw_discount", default=0),
+        "isOnSale": bool(pega("discount", "discountPercent", "isOnSale", default=0)),
+        "historicalSoldEstimated": pega("historical_sold", "historicalSoldEstimated", "sold", default=""),
+        "rating": pega("item_rating", "rating", default=0) if not isinstance(pega("item_rating"), dict) else (pega("item_rating") or {}).get("rating_star", 0),
+        "reviewCount": pega("cmt_count", "reviewCount", default=0),
+        "stock": pega("stock", default=0),
+        "shopName": pega("shop_name", "shopName", default=""),
+        "itemid": pega("itemid", "item_id"),
+        "shopid": pega("shopid", "shop_id"),
+        "url": pega("url"),  # se o actor não devolver url pronta, ver construir_url_shopee()
+    }
+
+def construir_url_shopee(item):
+    """Monta a URL do produto no padrão da Shopee (i.{shopid}.{itemid})
+    quando o actor não devolve a URL pronta, mas devolve itemid/shopid."""
+    if item.get("url"):
+        return item["url"]
+    if item.get("itemid") and item.get("shopid"):
+        nome_slug = (item.get("name") or "produto").lower()
+        nome_slug = "".join(c if c.isalnum() else "-" for c in nome_slug)
+        nome_slug = "-".join(filter(None, nome_slug.split("-")))[:100]
+        return f"https://shopee.com.br/{nome_slug}-i.{item['shopid']}.{item['itemid']}"
+    return ""
 
 def rodar_apify(termo):
     """Dispara o Actor e aguarda conclusão. Retorna lista de produtos."""
@@ -59,9 +193,11 @@ def rodar_apify(termo):
     # Inicia o run
     url = f"https://api.apify.com/v2/acts/{ACTOR_ID}/runs?token={APIFY_TOKEN}"
     payload = {
-        "location": termo,
-        "maxItems": MAX_ITENS,
-        "countryCode": "BR",
+        "mode": "keyword",
+        "keyword": termo,
+        "country": "br",
+        "maxProducts": MAX_ITENS,
+        "sort": "relevancy",
     }
     resp = requests.post(url, json=payload, timeout=30)
     resp.raise_for_status()
@@ -90,17 +226,40 @@ def rodar_apify(termo):
         f"?token={APIFY_TOKEN}&format=json&clean=true"
     )
     items = requests.get(items_url, timeout=30).json()
+
+    if detectar_dados_mock(items):
+        print(f"  🚨 ALERTA: o actor '{ACTOR_ID}' devolveu DADOS MOCK/FAKE para '{termo}', não dados reais!")
+        raise RuntimeError(
+            f"Actor {ACTOR_ID} devolveu dados mock/sample (não reais) para o termo '{termo}'. "
+            f"Coleta abortada — NADA foi salvo no Sheets. Verifique o plano/config do actor no Apify Console."
+        )
+
     print(f"  ✅ {len(items)} produtos coletados")
     return items
 
 def rodar_apify_loja(shop_url):
-    """Coleta produtos de uma loja específica via shopUrls."""
-    print(f"  🏪 Coletando loja: {shop_url}")
+
+    """Coleta produtos de uma loja específica.
+    ✅ CONFIRMADO com dado real em 2026-07-02 — mode="shop" + campo "shop"
+    (username) retornou 5 produtos reais da Loja 1 (minasclean), com
+    shop_id=1781178701 batendo com o Shop ID real já validado via API
+    oficial da Shopee em sessão anterior.
+    ⚠️ PENDENTE: só voltaram 5 produtos mesmo pedindo maxProducts=40 — esse
+    modo pode ter um limite padrão de amostra que ignora "maxProducts".
+    Você tem até 24 SKUs; se a coleta real também trouxer só ~5, boa parte
+    do catálogo vai ficar sem preço próprio no dashboard. Verificar depois
+    do primeiro run de produção — se persistir, procurar um campo tipo
+    "limit"/"maxPages" específico do modo shop, ou trocar de estratégia
+    (ex: rodar "keyword" com o nome de cada produto)."""
+    shop_username = shop_url.rstrip("/").split("/")[-1]
+    print(f"  🏪 Coletando loja: {shop_url} (username: {shop_username})")
     url = f"https://api.apify.com/v2/acts/{ACTOR_ID}/runs?token={APIFY_TOKEN}"
     payload = {
-        "shopUrls": [shop_url],
-        "maxItems": MAX_ITENS,
-        "countryCode": "BR",
+        "mode": "shop",
+        "shop": shop_username,
+        "country": "br",
+        "maxProducts": MAX_ITENS_LOJA,
+        "sort": "relevancy",
     }
     resp = requests.post(url, json=payload, timeout=30)
     resp.raise_for_status()
@@ -127,6 +286,14 @@ def rodar_apify_loja(shop_url):
         f"?token={APIFY_TOKEN}&format=json&clean=true"
     )
     items = requests.get(items_url, timeout=30).json()
+
+    if detectar_dados_mock(items):
+        print(f"  🚨 ALERTA: o actor '{ACTOR_ID}' devolveu DADOS MOCK/FAKE para a loja '{shop_url}'!")
+        raise RuntimeError(
+            f"Actor {ACTOR_ID} devolveu dados mock/sample (não reais) para '{shop_url}'. "
+            f"Coleta abortada — NADA foi salvo no Sheets."
+        )
+
     print(f"  ✅ {len(items)} produtos coletados da loja")
     return items
 
@@ -204,75 +371,60 @@ def main():
     limpar_dados_antigos(ws)
 
     todas_linhas = []
+    amostra_impressa = False
+    contagem_lojas = {"minha_loja": 0, "minha_loja2": 0}
 
     for termo in TERMOS_BUSCA:
-        produtos = rodar_apify(termo)
-        for p in produtos:
+        produtos_brutos = rodar_apify(termo)
+        if produtos_brutos and not amostra_impressa:
+            print("\n  🔎 AMOSTRA DO 1º ITEM BRUTO (confira se os campos batem):")
+            print(" ", json.dumps(produtos_brutos[0], ensure_ascii=False)[:800])
+            amostra_impressa = True
+        for raw in produtos_brutos:
+            p = normalizar_item(raw)
+
+            # Reconhece se esse produto é seu (por shop_id), mesmo vindo de
+            # uma busca de "concorrente" — mode="shop" está quebrado nesse
+            # actor (capado em ~5 produtos), então usamos os resultados de
+            # busca normal, que não tem esse limite, pra também capturar
+            # seus próprios produtos.
+            shopid = str(p.get("shopid") or "")
+            if shopid == MINHA_LOJA_SHOPID:
+                termo_busca, loja = "minha_loja", "minasclean"
+                contagem_lojas["minha_loja"] += 1
+            elif shopid == MINHA_LOJA2_SHOPID:
+                termo_busca, loja = "minha_loja2", "maximahome"
+                contagem_lojas["minha_loja2"] += 1
+            else:
+                termo_busca, loja = termo, p.get("shopName", "")
+
+            # Pra produtos seus, prioriza originalPrice (preço sem desconto
+            # temporário); pra concorrentes, usa o price normal.
+            preco = (p.get("originalPrice") or p.get("price", 0)) if termo_busca in ("minha_loja", "minha_loja2") else p.get("price", 0)
+
             linha = [
                 hoje,
-                termo,
-                p.get("shopName", ""),
-                p.get("name", "")[:120],
-                p.get("price", 0),
-                p.get("priceMax") or p.get("price", 0),
+                termo_busca,
+                loja,
+                (p.get("name") or "")[:120],
+                preco,
+                p.get("priceMax") or preco,
                 p.get("discountPercent", 0),
                 p.get("historicalSoldEstimated", ""),
                 p.get("rating", 0),
                 p.get("reviewCount", 0),
                 p.get("stock", 0),
                 "Sim" if p.get("isOnSale") else "Não",
-                p.get("url", ""),
+                construir_url_shopee(p),
             ]
             todas_linhas.append(linha)
 
-    # Coleta Loja 1 (minasclean)
-    print(f"\n  🏪 Coletando Loja 1: {MINHA_LOJA_URL}")
-    meus_produtos = rodar_apify_loja(MINHA_LOJA_URL)
-    for p in meus_produtos:
-        # Usar originalPrice se disponível (preço sem desconto = preço base)
-        # O price pode ser com desconto temporário; originalPrice é o preço real do anúncio
-        preco_real = p.get("originalPrice") or p.get("price", 0)
-        linha = [
-            hoje,
-            "minha_loja",
-            "minasclean",
-            p.get("name", "")[:120],
-            preco_real,
-            p.get("priceMax") or preco_real,
-            p.get("discountPercent", 0),
-            p.get("historicalSoldEstimated", ""),
-            p.get("rating", 0),
-            p.get("reviewCount", 0),
-            p.get("stock", 0),
-            "Sim" if p.get("isOnSale") else "Não",
-            p.get("url", ""),
-        ]
-        todas_linhas.append(linha)
-
-    # Coleta Loja 2 (maximahome)
-    print(f"\n  🏪 Coletando Loja 2: {MINHA_LOJA2_URL}")
-    meus_produtos2 = rodar_apify_loja(MINHA_LOJA2_URL)
-    for p in meus_produtos2:
-        preco_real = p.get("originalPrice") or p.get("price", 0)
-        linha = [
-            hoje,
-            "minha_loja2",
-            "maximahome",
-            p.get("name", "")[:120],
-            preco_real,
-            p.get("priceMax") or preco_real,
-            p.get("discountPercent", 0),
-            p.get("historicalSoldEstimated", ""),
-            p.get("rating", 0),
-            p.get("reviewCount", 0),
-            p.get("stock", 0),
-            "Sim" if p.get("isOnSale") else "Não",
-            p.get("url", ""),
-        ]
-        todas_linhas.append(linha)
-
     salvar(ws, todas_linhas)
     print(f"\n✅ Concluído — {len(todas_linhas)} produtos de {len(TERMOS_BUSCA)} buscas")
+    print(f"   Seus produtos capturados nas buscas: Loja 1 = {contagem_lojas['minha_loja']}, Loja 2 = {contagem_lojas['minha_loja2']}")
+    if contagem_lojas["minha_loja"] == 0 or contagem_lojas["minha_loja2"] == 0:
+        print("   ⚠️ Uma das lojas não apareceu em NENHUMA busca — pode não estar bem")
+        print("      rankeada pros termos de busca atuais, ou precisar de mais termos.")
     print(f"   Planilha: https://docs.google.com/spreadsheets/d/{SHEET_ID}")
 
 if __name__ == "__main__":
