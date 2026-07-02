@@ -78,7 +78,11 @@ MINHA_LOJA_TAG = "minha_loja"
 MINHA_LOJA_SHOPID  = "1781178701"  # minasclean — confirmado batendo com API oficial da Shopee
 MINHA_LOJA2_SHOPID = "1810599865"  # maximahome — confirmado navegando manualmente até um produto
 
-MAX_ITENS = 20  # por termo de busca de concorrente — ajuste conforme créditos disponíveis
+MAX_ITENS = 13  # por termo — ajustado em 02/07/2026 pra caber em ~$29/mês
+# rodando 2x/semana no plano Starter da Apify ($30/1.000 resultados do
+# actor xtracto/shopee-scraper: 8 termos × 13 × $0,03 × ~8,7 rodadas/mês
+# ≈ $27/mês, com margem). Se aumentar a frequência ou os termos de busca,
+# recalcular: (orçamento mensal ÷ rodadas/mês) ÷ $0,03 ÷ nº de termos.
 
 # Você tem até 24 SKUs (variações de tamanho x kit) espalhados entre as duas
 # lojas. 20 poderia deixar SKU de fora numa loja com catálogo cheio — usamos
@@ -200,6 +204,9 @@ def rodar_apify(termo):
         "sort": "relevancy",
     }
     resp = requests.post(url, json=payload, timeout=30)
+    if not resp.ok:
+        print(f"  ❌ Apify recusou iniciar o run (HTTP {resp.status_code}):")
+        print(f"     {resp.text[:500]}")
     resp.raise_for_status()
     run = resp.json()["data"]
     run_id = run["id"]
