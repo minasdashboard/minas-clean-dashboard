@@ -387,8 +387,23 @@ def main():
             print("\n  🔎 AMOSTRA DO 1º ITEM BRUTO (confira se os campos batem):")
             print(" ", json.dumps(produtos_brutos[0], ensure_ascii=False)[:800])
             amostra_impressa = True
-        for raw in produtos_brutos:
+
+        # ⚠️ 02/07/2026 — DESCOBERTO: o actor xtracto/shopee-scraper devolve
+        # o campo 'name' DESALINHADO em 1 posição dentro de cada lote — o
+        # nome real de cada produto está no item ANTERIOR da mesma lista
+        # bruta (preço/rating/url/shop_id não têm esse problema, só o nome).
+        # Confirmado comparando manualmente vários itens com a página real
+        # da Shopee. Corrigido aqui: usa o nome do item anterior no lote.
+        # O primeiro item de cada lote fica sem nome confiável (não tem
+        # "anterior" dentro do lote coletado) — marcado como tal.
+        for i, raw in enumerate(produtos_brutos):
             p = normalizar_item(raw)
+            if i == 0:
+                p["name"] = "(nome não confirmado — 1º item do lote) " + (p.get("name") or "")
+            else:
+                nome_corrigido = normalizar_item(produtos_brutos[i - 1]).get("name")
+                if nome_corrigido:
+                    p["name"] = nome_corrigido
 
             # Reconhece se esse produto é seu (por shop_id), mesmo vindo de
             # uma busca de "concorrente" — mode="shop" está quebrado nesse
