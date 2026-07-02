@@ -3,8 +3,7 @@ name: Minas Clean - Scraping Concorrentes
 on:
   schedule:
     - cron: '0 10 * * 1'  # Segunda-feira 07:00 BRT (10:00 UTC)
-    - cron: '0 10 * * 3'  # Quarta-feira  07:00 BRT
-    - cron: '0 10 * * 5'  # Sexta-feira   07:00 BRT
+    - cron: '0 10 * * 4'  # Quinta-feira  07:00 BRT
   workflow_dispatch:       # permite rodar manualmente pelo GitHub
 
 jobs:
