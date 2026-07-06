@@ -1492,7 +1492,7 @@ function fmtBRL(v){ return 'R$ ' + fmt(v,2).replace('.',','); }
 function fmtInt(v){ return Math.round(Number(v||0)).toLocaleString('pt-BR'); }
 
 function filterRows(rows){
-  let filtered = rows.filter(r => Number(r.impressions||0) + Number(r.cost||0) + Number(r.gmv||0) > 0);
+  let filtered = rows.filter(r => Number(r.impressions||0) + parseBR(r.cost) + parseBR(r.gmv) > 0);
   if(currentStore !== 'all'){
     const label = currentStore === 'loja1' ? 'Loja 1' : 'Loja 2';
     filtered = filtered.filter(r => (r.shop||'').trim() === label);
@@ -1506,8 +1506,8 @@ function filterRows(rows){
 }
 
 function renderRealKPIs(rows){
-  const totCost  = rows.reduce((s,r) => s + Number(r.cost||0), 0);
-  const totGMV   = rows.reduce((s,r) => s + Number(r.gmv||0), 0);
+  const totCost  = rows.reduce((s,r) => s + parseBR(r.cost), 0);
+  const totGMV   = rows.reduce((s,r) => s + parseBR(r.gmv), 0);
   const totOrders= rows.reduce((s,r) => s + Number(r.orders||0), 0);
   const totImpr  = rows.reduce((s,r) => s + Number(r.impressions||0), 0);
   const totClicks= rows.reduce((s,r) => s + Number(r.clicks||0), 0);
@@ -1531,22 +1531,22 @@ function renderPerformanceTable(rows){
     return;
   }
   tbody.innerHTML = rows.map(r => {
-    const roas = Number(r.roas||0);
+    const roas = parseBR(r.roas);
     const roasClass = roas >= 4 ? 'val-up' : roas >= 2 ? '' : roas > 0 ? 'val-down' : '';
     const roasLabel = roas > 0 ? roas.toFixed(2)+'x' : '—';
-    const gmv = Number(r.gmv||0);
+    const gmv = parseBR(r.gmv);
     return `<tr>
       <td>${r.date||'—'}</td>
       <td>${r.shop||'—'}</td>
       <td>${fmtInt(r.impressions)}</td>
       <td>${fmtInt(r.clicks)}</td>
-      <td>${fmt(r.ctr_pct,2)}%</td>
-      <td>${fmtBRL(r.cost)}</td>
+      <td>${fmt(parseBR(r.ctr_pct),2)}%</td>
+      <td>${fmtBRL(parseBR(r.cost))}</td>
       <td class="${gmv > 0 ? 'val-up' : ''}">${fmtBRL(gmv)}</td>
       <td class="${roasClass}">${roasLabel}</td>
-      <td>${fmtBRL(r.cpc)}</td>
+      <td>${fmtBRL(parseBR(r.cpc))}</td>
       <td>${fmtInt(r.orders)}</td>
-      <td>${fmt(r.conversion_rate,2)}%</td>
+      <td>${fmt(parseBR(r.conversion_rate),2)}%</td>
     </tr>`;
   }).join('');
 }
