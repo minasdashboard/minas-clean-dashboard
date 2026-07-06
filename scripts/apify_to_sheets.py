@@ -190,6 +190,42 @@ def construir_url_shopee(item):
         return f"https://shopee.com.br/{nome_slug}-i.{item['shopid']}.{item['itemid']}"
     return ""
 
+def corrigir_offset_nomes(items):
+    """⚠️ 06/07/2026 — CONFIRMADO (comparando itens reais de uma run de produção
+    do actor xtracto/shopee-scraper, termo 'pano microfibra 35x35', 2026-07-02):
+    o campo 'name' vem DESLOCADO 1 POSIÇÃO PRA FRENTE em relação a item_id/
+    shop_id/price/url dentro do lote — ou seja, o nome que aparece na posição N
+    do lote bruto pertence de verdade ao item da posição N+1.
+    Confirmado abrindo a página real da Shopee: o item na posição 10 (shop_id
+    860090337, preço R$11,60 — batendo com a página real) tinha, no lote bruto,
+    o NOME do item da posição 9 ("Kit com 10 - Pano Microfibra Flanela - 30 x
+    30cm..." — que é o título real do produto da posição 10, não da posição 9).
+    Esse bug já tinha sido visto e corrigido com o actor anterior (gio21), mas
+    a correção não existia para o formato do xtracto/shopee-scraper (campos
+    item_id/shop_id/name flat) — por isso passou despercebido até agora.
+    Aqui corrigimos deslocando 'name' pra frente: o nome correto do item i é o
+    'name' que veio na posição i-1 do lote bruto. O PRIMEIRO item do lote perde
+    o nome com confiabilidade (não temos o anterior pra confirmar) — nesse caso
+    preferimos marcar como vazio a manter um nome errado, já que um nome errado
+    causa classificação errada de tamanho/kit no dashboard, o que é pior do que
+    faltar o dado."""
+    if not items or len(items) < 2:
+        return items
+    # só faz sentido corrigir no formato flat (item_id/shop_id), que é o formato
+    # onde o bug foi confirmado — não mexe em outros formatos por segurança
+    if not all(("item_id" in it or "shop_id" in it) for it in items[:3]):
+        return items
+
+    corrigidos = []
+    for i, it in enumerate(items):
+        novo = dict(it)
+        if i - 1 >= 0:
+            novo["name"] = items[i - 1].get("name", "")
+        else:
+            novo["name"] = ""  # primeiro item do lote: sem anterior pra confirmar
+        corrigidos.append(novo)
+    return corrigidos
+
 def rodar_apify(termo):
     """Dispara o Actor e aguarda conclusão. Retorna lista de produtos."""
     print(f"\n  🔍 Buscando: '{termo}'")
@@ -233,6 +269,7 @@ def rodar_apify(termo):
         f"?token={APIFY_TOKEN}&format=json&clean=true"
     )
     items = requests.get(items_url, timeout=30).json()
+    items = corrigir_offset_nomes(items)
 
     if detectar_dados_mock(items):
         print(f"  🚨 ALERTA: o actor '{ACTOR_ID}' devolveu DADOS MOCK/FAKE para '{termo}', não dados reais!")
@@ -293,6 +330,7 @@ def rodar_apify_loja(shop_url):
         f"?token={APIFY_TOKEN}&format=json&clean=true"
     )
     items = requests.get(items_url, timeout=30).json()
+    items = corrigir_offset_nomes(items)
 
     if detectar_dados_mock(items):
         print(f"  🚨 ALERTA: o actor '{ACTOR_ID}' devolveu DADOS MOCK/FAKE para a loja '{shop_url}'!")
