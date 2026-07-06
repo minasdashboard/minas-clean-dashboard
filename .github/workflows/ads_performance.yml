@@ -1,0 +1,44 @@
+name: Minas Clean - Performance de Ads (Shopee)
+
+on:
+  schedule:
+    - cron: '0 9 * * *'   # todo dia às 06:00 BRT (09:00 UTC)
+  workflow_dispatch:        # permite rodar manualmente pelo GitHub
+
+jobs:
+  coletar-ads:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repositório
+        uses: actions/checkout@v4
+
+      - name: Instalar Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Instalar dependências
+        run: |
+          pip install requests gspread google-auth pynacl
+
+      - name: Escrever config.json a partir do Secret
+        working-directory: scripts
+        env:
+          SHOPEE_CONFIG_JSON: ${{ secrets.SHOPEE_CONFIG_JSON }}
+        run: |
+          printf '%s' "$SHOPEE_CONFIG_JSON" > config.json
+          python -c "import json; json.load(open('config.json')); print('config.json OK')"
+
+      - name: Coletar performance de Ads e salvar no Sheets
+        working-directory: scripts
+        env:
+          GOOGLE_CREDENTIALS: ${{ secrets.GOOGLE_CREDENTIALS }}
+        run: python shopee_ads_to_sheets.py coletar
+
+      - name: Salvar token renovado de volta no Secret
+        working-directory: scripts
+        env:
+          GH_PAT: ${{ secrets.GH_PAT }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+        run: python atualizar_secret_config.py
