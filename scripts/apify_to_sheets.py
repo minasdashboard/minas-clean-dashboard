@@ -226,6 +226,16 @@ def corrigir_offset_nomes(items):
         corrigidos.append(novo)
     return corrigidos
 
+def achatar(v):
+    """Garante que o valor é um tipo simples (texto/número) antes de ir pro
+    Sheets. Com fetchDetail=True, alguns campos passaram a vir como lista ou
+    dicionário em vez de texto/número simples (ex.: sold_count com metadados
+    aninhados) — o Google Sheets rejeita a linha INTEIRA quando isso acontece,
+    então precisamos achatar qualquer valor complexo pra string antes."""
+    if isinstance(v, (dict, list)):
+        return json.dumps(v, ensure_ascii=False)[:200]  # corta pra não estourar limite de célula
+    return v
+
 def rodar_apify(termo):
     """Dispara o Actor e aguarda conclusão. Retorna lista de produtos."""
     print(f"\n  🔍 Buscando: '{termo}'")
@@ -470,7 +480,7 @@ def main():
             # temporário); pra concorrentes, usa o price normal.
             preco = (p.get("originalPrice") or p.get("price", 0)) if termo_busca in ("minha_loja", "minha_loja2") else p.get("price", 0)
 
-            linha = [
+            linha = [achatar(v) for v in [
                 hoje,
                 termo_busca,
                 loja,
@@ -484,7 +494,7 @@ def main():
                 p.get("stock", 0),
                 "Sim" if p.get("isOnSale") else "Não",
                 construir_url_shopee(p),
-            ]
+            ]]
             todas_linhas.append(linha)
 
     salvar(ws, todas_linhas)
