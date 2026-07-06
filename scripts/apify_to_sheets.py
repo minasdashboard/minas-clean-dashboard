@@ -238,6 +238,12 @@ def rodar_apify(termo):
         "country": "br",
         "maxProducts": MAX_ITENS,
         "sort": "relevancy",
+        "fetchDetail": True,  # 06/07/2026: ativado pra capturar sold_count (vendas
+                              # acumuladas) — sem isso o campo vem sempre nulo, pois
+                              # a página de busca não inclui esse dado, só a página
+                              # individual do produto. Deixa a run mais lenta/cara
+                              # (visita cada produto), mas é necessário pro recurso
+                              # de estimativa de vendas por período.
     }
     resp = requests.post(url, json=payload, timeout=30)
     if not resp.ok:
@@ -248,8 +254,10 @@ def rodar_apify(termo):
     run_id = run["id"]
     print(f"  Run ID: {run_id} — aguardando...")
 
-    # Aguarda conclusão (máx 3 min)
-    for _ in range(18):
+    # Aguarda conclusão (máx 8 min — com fetchDetail=True a run visita cada
+    # produto individualmente e fica bem mais lenta que antes; 3 min não é
+    # mais suficiente pra maioria dos casos)
+    for _ in range(48):
         time.sleep(10)
         status_url = f"https://api.apify.com/v2/actor-runs/{run_id}?token={APIFY_TOKEN}"
         info = requests.get(status_url, timeout=15).json()["data"]
