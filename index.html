@@ -472,7 +472,7 @@ footer.app-footer{
   nav.tabs{padding:0 16px;}
 }
 </style>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.4/chart.umd.min.js"></script>
+<script src="chart.umd.js"></script>
 </head>
 <body>
 
@@ -1843,6 +1843,7 @@ function renderCaixaTable(rows){
 function renderCaixaChart(rows){
   const canvas = document.getElementById('chart-caixa');
   if(!canvas) return;
+  if(typeof Chart === 'undefined'){ console.warn('Chart.js não carregado — gráfico de pedidos não pôde ser desenhado.'); return; }
   // Agrupa por data (soma lojas), ordenado do mais antigo pro mais recente
   const porDia = {};
   rows.forEach(r => {
@@ -1984,6 +1985,7 @@ function renderWalletTable(rows){
 function renderWalletChart(rows){
   const canvas = document.getElementById('chart-wallet');
   if(!canvas) return;
+  if(typeof Chart === 'undefined'){ console.warn('Chart.js não carregado — gráfico do fluxo de caixa real não pôde ser desenhado.'); return; }
   const porDia = {};
   rows.forEach(r => {
     const d = r.date;
@@ -2127,6 +2129,7 @@ function renderPrevisaoTable(projecoes){
 function renderPrevisaoChart(projecoes){
   const canvas = document.getElementById('chart-previsao');
   if(!canvas) return;
+  if(typeof Chart === 'undefined'){ console.warn('Chart.js não carregado — gráfico de previsão não pôde ser desenhado.'); return; }
   const porDia = {};
   projecoes.forEach(p => {
     if(!porDia[p.date]) porDia[p.date] = 0;
@@ -2267,6 +2270,7 @@ function renderPrazoRealKPIs(melhor){
 function renderPrazoRealChart(resultados){
   const canvas = document.getElementById('chart-prazo-real');
   if(!canvas) return;
+  if(typeof Chart === 'undefined'){ console.warn('Chart.js não carregado — gráfico de prazo real não pôde ser desenhado.'); return; }
   const labels = resultados.map(r => `${r.lag}d`);
   const valores = resultados.map(r => r.corr === null ? null : (r.corr*100).toFixed(1));
 
