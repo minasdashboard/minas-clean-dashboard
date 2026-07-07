@@ -647,6 +647,7 @@ footer.app-footer{
       <div class="data-source-banner" id="banner-caixa">
         ⚠ Exibindo dados de exemplo. Conecte a planilha 'historico_pedidos' para dados reais (ver Aba 4).
       </div>
+      <div class="data-source-banner" id="aviso-erro-caixa" style="display:none; border-color:#ff5a5a; color:#ffb3b3;"></div>
 
       <div class="store-toggle">
         <button class="store-active-caixa active" data-store="all">Ambas as Lojas</button>
@@ -718,8 +719,9 @@ footer.app-footer{
       <div class="section-title" style="margin-top:36px;"><span class="num">05</span> Previsão de Fluxo de Caixa</div>
       <div style="color:var(--text-dim); font-size:13px; margin:-8px 0 16px;">
         Projeta os pedidos já pagos pelo comprador (gmv_pago) para a data provável em que a Shopee
-        libera esse valor na sua carteira, usando um prazo médio ajustável. Compare com a seção 04
-        (Fluxo de Caixa Real) ao longo do tempo para calibrar esse prazo com o comportamento real da sua conta.
+        libera esse valor na sua carteira, usando um prazo médio ajustável. A tabela abaixo mostra os
+        últimos dias <b>reais</b> (entradas confirmadas na carteira) seguidos pelos dias <b>previstos</b>,
+        para você comparar "como foi" com "como deve ser" na mesma linha do tempo.
       </div>
 
       <div style="display:flex; align-items:center; gap:16px; flex-wrap:wrap; background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:14px 18px; margin-bottom:20px;">
@@ -742,9 +744,10 @@ footer.app-footer{
         <table class="data-table" id="table-previsao">
           <thead>
             <tr>
-              <th>Data Prevista de Liberação</th>
+              <th>Status</th>
+              <th>Data</th>
               <th>Loja</th>
-              <th>Valor Previsto (R$)</th>
+              <th>Valor (R$)</th>
               <th>Pedidos</th>
               <th>Baseado no Pagamento de</th>
             </tr>
@@ -914,6 +917,18 @@ document.querySelectorAll('.tab-btn').forEach(btn => {
     document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
     btn.classList.add('active');
     document.getElementById(btn.dataset.tab).classList.add('active');
+    // BUGFIX: gráficos criados enquanto a aba estava escondida (display:none)
+    // ficam com tamanho 0x0 no Chart.js e nunca se corrigem sozinhos. Ao
+    // trocar de aba, forçamos um resize em todos os gráficos já criados —
+    // isso é seguro mesmo pros que já estavam visíveis (resize() é idempotente).
+    setTimeout(() => {
+      [window.__priceChartInstance, __chartCaixaInstance, __chartWalletInstance,
+       __chartPrevisaoInstance, __chartPrazoRealInstance].forEach(c => {
+        if(c && typeof c.resize === 'function'){
+          try { c.resize(); } catch(e) { console.warn('Falha ao redimensionar gráfico:', e); }
+        }
+      });
+    }, 50);
   });
 });
 
@@ -1862,13 +1877,24 @@ function renderCaixaChart(rows){
 }
 
 function refreshCaixa(){
+  const erros = [];
   const rows = filterCaixaRows(__caixaRows.length > 0 ? __caixaRows : EXAMPLE_CASHFLOW);
-  renderCaixaKPIs(rows);
-  renderCaixaTable(rows);
-  renderCaixaChart(rows);
-  refreshWallet();
-  refreshPrevisao();
-  refreshPrazoReal();
+  try { renderCaixaKPIs(rows); } catch(e){ erros.push('KPIs de pedidos: ' + e.message); console.error(e); }
+  try { renderCaixaTable(rows); } catch(e){ erros.push('Tabela de pedidos: ' + e.message); console.error(e); }
+  try { renderCaixaChart(rows); } catch(e){ erros.push('Gráfico de pedidos: ' + e.message); console.error(e); }
+  try { refreshWallet(); } catch(e){ erros.push('Fluxo de caixa real: ' + e.message); console.error(e); }
+  try { refreshPrevisao(); } catch(e){ erros.push('Previsão: ' + e.message); console.error(e); }
+  try { refreshPrazoReal(); } catch(e){ erros.push('Prazo real: ' + e.message); console.error(e); }
+
+  const avisoErro = document.getElementById('aviso-erro-caixa');
+  if(avisoErro){
+    if(erros.length > 0){
+      avisoErro.style.display = 'block';
+      avisoErro.textContent = '⚠ Erro ao carregar parte dos dados desta aba: ' + erros.join(' | ') + ' — abra o Console do navegador (F12) e mande o print pro Claude.';
+    } else {
+      avisoErro.style.display = 'none';
+    }
+  }
 }
 
 document.querySelectorAll('.store-active-caixa').forEach(btn => {
@@ -2052,19 +2078,50 @@ function renderPrevisaoKPIs(projecoes){
   renderKPIs('kpi-grid-previsao', kpis);
 }
 
+function calcularRecentesReais(horizonteDias){
+  // Últimos N dias reais de 'entradas' (fluxo_caixa_real / wallet), agregados
+  // por (data, loja) — usados pra dar contexto de "como foi" antes da previsão.
+  const walletBase = filterWalletRowsPorLoja(__walletRows.length > 0 ? __walletRows : EXAMPLE_WALLET);
+  const porDiaLoja = {};
+  walletBase.forEach(r => {
+    const chave = r.date + '|' + r.shop;
+    if(!porDiaLoja[chave]) porDiaLoja[chave] = { date: r.date, shop: r.shop, valor: 0 };
+    porDiaLoja[chave].valor += numCaixa(r.entradas);
+  });
+  const todasDatas = [...new Set(Object.values(porDiaLoja).map(v => v.date))].sort();
+  const datasRecentes = new Set(todasDatas.slice(-horizonteDias));
+  return Object.values(porDiaLoja)
+    .filter(v => datasRecentes.has(v.date))
+    .sort((a,b) => a.date.localeCompare(b.date) || String(a.shop).localeCompare(String(b.shop)));
+}
+
 function renderPrevisaoTable(projecoes){
   const tbody = document.querySelector('#table-previsao tbody');
-  if(projecoes.length === 0){
-    tbody.innerHTML = '<tr><td colspan="5" class="empty-state">Nenhuma previsão para este horizonte — ajuste o prazo ou o período.</td></tr>';
-    return;
-  }
-  tbody.innerHTML = projecoes.map(p => `<tr>
+  const recentes = calcularRecentesReais(horizontePrevisao);
+
+  const linhasReais = recentes.map(r => `<tr style="opacity:0.85;">
+      <td><span style="color:#4CC98C;">● Real</span></td>
+      <td>${r.date}</td>
+      <td>${r.shop||'—'}</td>
+      <td class="val-up">${fmtBRL(r.valor)}</td>
+      <td>—</td>
+      <td>—</td>
+    </tr>`).join('');
+
+  const linhasPrevistas = projecoes.map(p => `<tr>
+      <td><span style="color:#FF7A3D;">● Previsto</span></td>
       <td>${p.date}</td>
       <td>${p.shop||'—'}</td>
       <td class="val-up">${fmtBRL(p.valor)}</td>
       <td>${fmtInt(p.pedidos)}</td>
       <td>${p.origem}</td>
     </tr>`).join('');
+
+  if(recentes.length === 0 && projecoes.length === 0){
+    tbody.innerHTML = '<tr><td colspan="6" class="empty-state">Nenhum dado real ou previsto para este horizonte — ajuste o prazo ou o período.</td></tr>';
+    return;
+  }
+  tbody.innerHTML = linhasReais + linhasPrevistas;
 }
 
 function renderPrevisaoChart(projecoes){
