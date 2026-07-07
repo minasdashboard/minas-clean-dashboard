@@ -513,7 +513,8 @@ footer.app-footer{
   <nav class="tabs">
     <button class="tab-btn active" data-tab="tab1">Aba 1 — Inteligência Competitiva</button>
     <button class="tab-btn" data-tab="tab2">Aba 2 — Performance &amp; ROAS</button>
-    <button class="tab-btn" data-tab="tab3">Aba 3 — Configuração de Dados</button>
+    <button class="tab-btn" data-tab="tab-caixa">Aba 3 — Fluxo de Caixa</button>
+    <button class="tab-btn" data-tab="tab3">Aba 4 — Configuração de Dados</button>
   </nav>
 
   <main>
@@ -640,6 +641,141 @@ footer.app-footer{
 
     </section>
 
+    <!-- ============ TAB CAIXA: FLUXO DE CAIXA ============ -->
+    <section id="tab-caixa" class="tab-panel">
+
+      <div class="data-source-banner" id="banner-caixa">
+        ⚠ Exibindo dados de exemplo. Conecte a planilha 'historico_pedidos' para dados reais (ver Aba 4).
+      </div>
+
+      <div class="store-toggle">
+        <button class="store-active-caixa active" data-store="all">Ambas as Lojas</button>
+        <button class="store-active-caixa" data-store="loja1">Loja 1</button>
+        <button class="store-active-caixa" data-store="loja2">Loja 2</button>
+      </div>
+
+      <div class="section-title"><span class="num">01</span> KPIs de Faturamento — GMV Tradicional vs. GMV Pago</div>
+      <div class="kpi-grid" id="kpi-grid-caixa"></div>
+
+      <div class="section-title"><span class="num">02</span> GMV Tradicional vs. GMV Pago — Evolução Diária</div>
+      <div class="period-toggle" id="period-toggle-caixa">
+        <button class="period-active-caixa active" data-period="7">Últimos 7 dias</button>
+        <button class="period-active-caixa" data-period="14">Últimos 14 dias</button>
+        <button class="period-active-caixa" data-period="30">Últimos 30 dias</button>
+        <button class="period-active-caixa" data-period="0">Todos</button>
+      </div>
+      <div style="background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:18px; margin-bottom:24px;">
+        <canvas id="chart-caixa" height="90"></canvas>
+      </div>
+
+      <div class="section-title"><span class="num">03</span> Detalhamento Diário por Loja — Pedidos</div>
+      <div style="overflow-x:auto;">
+        <table class="data-table" id="table-caixa">
+          <thead>
+            <tr>
+              <th>Data</th>
+              <th>Loja</th>
+              <th>Pedidos</th>
+              <th>GMV Tradicional (R$)</th>
+              <th>GMV Pago (R$)</th>
+              <th>% Pago</th>
+              <th>Não Pagos</th>
+              <th>Cancelados</th>
+              <th>Atualizado em</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+
+      <div class="section-title" style="margin-top:36px;"><span class="num">04</span> Fluxo de Caixa Real — Dinheiro Liberado pela Shopee</div>
+      <div style="color:var(--text-dim); font-size:13px; margin:-8px 0 16px;">
+        Diferente do GMV acima (que reflete o que o comprador fez), esta seção mostra as movimentações reais
+        da sua carteira Shopee — incluindo a liberação do escrow — e é a referência mais confiável para prever
+        caixa futuro.
+      </div>
+      <div class="kpi-grid" id="kpi-grid-wallet"></div>
+      <div style="background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:18px; margin:20px 0 24px;">
+        <canvas id="chart-wallet" height="90"></canvas>
+      </div>
+      <div style="overflow-x:auto;">
+        <table class="data-table" id="table-wallet">
+          <thead>
+            <tr>
+              <th>Data</th>
+              <th>Loja</th>
+              <th>Transações</th>
+              <th>Entradas (R$)</th>
+              <th>Saídas (R$)</th>
+              <th>Saldo do Dia (R$)</th>
+              <th>Atualizado em</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+
+      <div class="section-title" style="margin-top:36px;"><span class="num">05</span> Previsão de Fluxo de Caixa</div>
+      <div style="color:var(--text-dim); font-size:13px; margin:-8px 0 16px;">
+        Projeta os pedidos já pagos pelo comprador (gmv_pago) para a data provável em que a Shopee
+        libera esse valor na sua carteira, usando um prazo médio ajustável. Compare com a seção 04
+        (Fluxo de Caixa Real) ao longo do tempo para calibrar esse prazo com o comportamento real da sua conta.
+      </div>
+
+      <div style="display:flex; align-items:center; gap:16px; flex-wrap:wrap; background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:14px 18px; margin-bottom:20px;">
+        <label style="display:flex; align-items:center; gap:8px; font-size:13px; color:var(--text-dim);">
+          Prazo médio até liberação (dias):
+          <input type="number" id="input-prazo-liberacao" value="7" min="1" max="60" style="width:60px; background:var(--bg); border:1px solid var(--line); border-radius:4px; color:var(--text); padding:4px 8px;">
+        </label>
+        <div class="period-toggle" id="period-toggle-previsao" style="margin:0;">
+          <button class="period-active-previsao active" data-horizonte="7">Próximos 7 dias</button>
+          <button class="period-active-previsao" data-horizonte="14">Próximos 14 dias</button>
+          <button class="period-active-previsao" data-horizonte="30">Próximos 30 dias</button>
+        </div>
+      </div>
+
+      <div class="kpi-grid" id="kpi-grid-previsao"></div>
+      <div style="background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:18px; margin:20px 0 24px;">
+        <canvas id="chart-previsao" height="90"></canvas>
+      </div>
+      <div style="overflow-x:auto;">
+        <table class="data-table" id="table-previsao">
+          <thead>
+            <tr>
+              <th>Data Prevista de Liberação</th>
+              <th>Loja</th>
+              <th>Valor Previsto (R$)</th>
+              <th>Pedidos</th>
+              <th>Baseado no Pagamento de</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+
+      <div class="section-title" style="margin-top:36px;"><span class="num">06</span> Prazo Real de Liberação — Calculado a partir dos Dados</div>
+      <div style="color:var(--text-dim); font-size:13px; margin:-8px 0 16px;">
+        Compara a curva diária de <b>gmv_pago</b> (pedidos pagos) com a curva diária de <b>entradas</b>
+        (dinheiro liberado na carteira) e encontra o deslocamento, em dias, que faz as duas curvas mais se
+        parecerem — essa é a melhor estimativa do prazo real de liberação com os dados que você já tem.
+        Precisa de histórico suficiente (idealmente 3-4 semanas) para o resultado ficar confiável.
+      </div>
+
+      <div id="aviso-prazo-real" class="data-source-banner" style="display:none;">
+        ⚠ Histórico ainda insuficiente para estimar o prazo real com confiança. Continue coletando dados por
+        algumas semanas — o indicador abaixo é apenas um palpite inicial até lá.
+      </div>
+
+      <div class="kpi-grid" id="kpi-grid-prazo-real"></div>
+      <div style="background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:18px; margin:20px 0 24px;">
+        <canvas id="chart-prazo-real" height="90"></canvas>
+      </div>
+      <div style="text-align:right; margin-top:-8px;">
+        <button id="btn-usar-prazo-real" class="store-active-caixa" style="padding:8px 16px;">Usar este prazo na Previsão (seção 05)</button>
+      </div>
+
+    </section>
+
     <!-- ============ TAB 3: DATA CONFIG ============ -->
     <section id="tab3" class="tab-panel">
       <div class="section-title"><span class="num">⚙</span> Configuração da Fonte de Dados</div>
@@ -648,6 +784,8 @@ footer.app-footer{
         <ul>
           <li><b>Aba 1 (Concorrentes):</b> publique a planilha do Google Sheets alimentada pelo Browse AI como CSV (Arquivo → Compartilhar → Publicar na web → formato CSV) e cole a URL no topo do arquivo <span class="tag-why">(variável SHEET_URL_COMPETITORS no código)</span>.</li>
           <li><b>Aba 2 (Suas lojas):</b> publique a planilha alimentada pela Shopee Open API da mesma forma <span class="tag-why">(variável SHEET_URL_STORES no código)</span> — esta é a fonte de preço/vendas reais usada também na Aba 1 para comparar com concorrentes.</li>
+          <li><b>Aba 3 (Fluxo de Caixa):</b> publique a aba <b>historico_pedidos</b> da mesma planilha como CSV <span class="tag-why">(variável SHEET_URL_CASHFLOW no código)</span> — alimentada pelo script <code>shopee_orders_to_sheets.py</code>, traz GMV Tradicional (todos os pedidos, pagos ou não) e GMV Pago (só pedidos com pagamento confirmado) por dia e por loja.</li>
+          <li><b>Aba 3 (Fluxo de Caixa Real):</b> publique também a aba <b>fluxo_caixa_real</b> como CSV <span class="tag-why">(variável SHEET_URL_WALLET no código)</span> — alimentada pelo script <code>shopee_wallet_to_sheets.py</code>, traz as movimentações reais da carteira Shopee (entradas, saídas, saldo do dia), incluindo a liberação do escrow. É a fonte mais confiável para prever caixa futuro.</li>
           <li>Enquanto as URLs não forem configuradas, o painel exibe dados de exemplo claramente identificados pelo aviso laranja no topo de cada aba.</li>
           <li>O indicador "Última atualização" no topo reflete o horário exato em que os dados foram buscados com sucesso — se o fetch falhar, ele mostra o erro e mantém o último dado bom carregado.</li>
         </ul>
@@ -678,6 +816,8 @@ footer.app-footer{
    ========================================================= */
 const SHEET_URL_COMPETITORS = "https://docs.google.com/spreadsheets/d/1IXN9PtJnqJfXDevC7Iy1FTBbrMF-rquXFZdlaaIRTDI/export?format=csv&gid=983454970";
 const SHEET_URL_STORES = "https://docs.google.com/spreadsheets/d/1IXN9PtJnqJfXDevC7Iy1FTBbrMF-rquXFZdlaaIRTDI/export?format=csv&gid=635079664";      // URL CSV publicada do Google Sheets (Shopee Open API) — preço/vendas reais por SKU e por loja
+const SHEET_URL_CASHFLOW = "https://docs.google.com/spreadsheets/d/1IXN9PtJnqJfXDevC7Iy1FTBbrMF-rquXFZdlaaIRTDI/export?format=csv&gid=2015658700"; // aba 'historico_pedidos' — o que o COMPRADOR fez (pediu/pagou), por dia/loja
+const SHEET_URL_WALLET = "https://docs.google.com/spreadsheets/d/1IXN9PtJnqJfXDevC7Iy1FTBbrMF-rquXFZdlaaIRTDI/export?format=csv&gid=44697487"; // aba 'fluxo_caixa_real' — o que a SHOPEE efetivamente libera pra você (entradas/saídas reais da carteira), por dia/loja
 const PASSWORD = "minasclean2026"; // Troque esta senha. É visível no código-fonte (ver aviso na tela de login).
 
 /* =========================================================
@@ -842,6 +982,23 @@ const EXAMPLE_ACTIONS_TAB2 = [
   {priority:"high", title:"Investigar queda de tráfego orgânico (-4% na semana)", why:"Pode indicar perda de posição em busca orgânica para concorrentes que estão investindo mais em SEO/relevância."},
   {priority:"med", title:"Realocar parte do orçamento da Loja 2 para a campanha de busca da Loja 1", why:"Loja 1 está com ROAS de 4.0x-5.9x consistente; Loja 2 mostrou resultado misto na última mudança de preço."},
   {priority:"low", title:"Manter monitoramento diário do ROAS por campanha", why:"Sem ação necessária agora, apenas observação contínua para detectar tendência antes que vire problema."},
+];
+
+const EXAMPLE_WALLET = [
+  {date:"2026-07-03", shop:"Loja 1", qtd_transacoes:257, entradas:6487.61, saidas:5072.08, saldo_dia:1415.53, atualizado_em:"2026-07-07 19:15:00"},
+  {date:"2026-07-04", shop:"Loja 1", qtd_transacoes:144, entradas:3777.25, saidas:8000.00, saldo_dia:-4222.75, atualizado_em:"2026-07-07 19:15:00"},
+  {date:"2026-07-05", shop:"Loja 1", qtd_transacoes:216, entradas:5367.28, saidas:1000.00, saldo_dia:4367.28, atualizado_em:"2026-07-07 19:15:00"},
+  {date:"2026-07-06", shop:"Loja 1", qtd_transacoes:236, entradas:6954.86, saidas:0.00, saldo_dia:6954.86, atualizado_em:"2026-07-07 19:15:00"},
+  {date:"2026-07-07", shop:"Loja 1", qtd_transacoes:197, entradas:5310.97, saidas:7000.00, saldo_dia:-1689.03, atualizado_em:"2026-07-07 19:15:00"},
+];
+
+const EXAMPLE_CASHFLOW = [
+  {date:"2026-07-05", shop:"Loja 1", total_orders:112, gmv_tradicional:4820.50, gmv_pago:4310.20, pedidos_pagos_no_dia:98, unpaid_orders:9, cancelled_orders:3, atualizado_em:"2026-07-07 06:00:00"},
+  {date:"2026-07-05", shop:"Loja 2", total_orders:64,  gmv_tradicional:2140.00, gmv_pago:1980.50, pedidos_pagos_no_dia:56, unpaid_orders:4, cancelled_orders:1, atualizado_em:"2026-07-07 06:00:00"},
+  {date:"2026-07-06", shop:"Loja 1", total_orders:98,  gmv_tradicional:4105.90, gmv_pago:3890.10, pedidos_pagos_no_dia:91, unpaid_orders:5, cancelled_orders:2, atualizado_em:"2026-07-07 06:00:00"},
+  {date:"2026-07-06", shop:"Loja 2", total_orders:57,  gmv_tradicional:1920.30, gmv_pago:1750.00, pedidos_pagos_no_dia:49, unpaid_orders:6, cancelled_orders:0, atualizado_em:"2026-07-07 06:00:00"},
+  {date:"2026-07-07", shop:"Loja 1", total_orders:76,  gmv_tradicional:3260.00, gmv_pago:1980.00, pedidos_pagos_no_dia:52, unpaid_orders:22, cancelled_orders:1, atualizado_em:"2026-07-07 06:00:00"},
+  {date:"2026-07-07", shop:"Loja 2", total_orders:41,  gmv_tradicional:1480.00, gmv_pago:820.00,  pedidos_pagos_no_dia:23, unpaid_orders:14, cancelled_orders:0, atualizado_em:"2026-07-07 06:00:00"},
 ];
 
 /* =========================================================
@@ -1597,6 +1754,516 @@ document.querySelectorAll('#sku-filter-btns .period-active').forEach(btn => {
 });
 
 /* =========================================================
+   RENDER — ABA FLUXO DE CAIXA (dados reais da aba 'historico_pedidos')
+   Colunas: date, shop, total_orders, gmv_tradicional, gmv_pago,
+            unpaid_orders, cancelled_orders, atualizado_em
+   ========================================================= */
+let currentPeriodCaixa = 7;
+let currentStoreCaixa = 'all';
+let __caixaRows = []; // dados reais carregados
+let __chartCaixaInstance = null;
+
+function filterCaixaRows(rows){
+  let filtered = rows;
+  if(currentStoreCaixa !== 'all'){
+    const label = currentStoreCaixa === 'loja1' ? 'Loja 1' : 'Loja 2';
+    filtered = filtered.filter(r => (r.shop||'').trim() === label);
+  }
+  if(currentPeriodCaixa > 0){
+    const sorted = [...filtered].sort((a,b) => String(b.date).localeCompare(String(a.date)));
+    const dates = [...new Set(sorted.map(r=>r.date))].slice(0, currentPeriodCaixa);
+    filtered = filtered.filter(r => dates.includes(r.date));
+  }
+  return filtered.sort((a,b) => String(b.date).localeCompare(String(a.date)) || String(a.shop).localeCompare(String(b.shop)));
+}
+
+function numCaixa(v){
+  // aceita tanto número puro (dados de exemplo) quanto string BR vinda do CSV
+  return typeof v === 'number' ? v : parseBR(v);
+}
+
+function renderCaixaKPIs(rows){
+  const totPedidos   = rows.reduce((s,r) => s + Number(r.total_orders||0), 0);
+  const totGmvTrad   = rows.reduce((s,r) => s + numCaixa(r.gmv_tradicional), 0);
+  const totGmvPago   = rows.reduce((s,r) => s + numCaixa(r.gmv_pago), 0);
+  const totUnpaid    = rows.reduce((s,r) => s + Number(r.unpaid_orders||0), 0);
+  const totCancel    = rows.reduce((s,r) => s + Number(r.cancelled_orders||0), 0);
+  const pctPago      = totGmvTrad > 0 ? (totGmvPago / totGmvTrad * 100) : 0;
+  const kpis = [
+    {label:"GMV Tradicional (período)", value: fmtBRL(totGmvTrad), delta:"todos os pedidos, exceto cancelados", trend:"flat"},
+    {label:"GMV Pago (período)", value: fmtBRL(totGmvPago), delta:"só pagamento confirmado", trend: pctPago >= 80 ? 'up' : pctPago >= 50 ? 'flat' : 'down'},
+    {label:"% do GMV já pago", value: pctPago.toFixed(1)+'%', delta:"gmv pago / gmv tradicional", trend: pctPago >= 80 ? 'up' : pctPago >= 50 ? 'flat' : 'down'},
+    {label:"Pedidos no período", value: fmtInt(totPedidos), delta:"exceto cancelados", trend:"flat"},
+    {label:"Pedidos não pagos", value: fmtInt(totUnpaid), delta:"aguardando confirmação", trend: totUnpaid > 0 ? 'down' : 'flat'},
+    {label:"Pedidos cancelados", value: fmtInt(totCancel), delta:"não entram no GMV", trend: totCancel > 0 ? 'down' : 'flat'},
+  ];
+  renderKPIs('kpi-grid-caixa', kpis);
+}
+
+function renderCaixaTable(rows){
+  const tbody = document.querySelector('#table-caixa tbody');
+  if(rows.length === 0){
+    tbody.innerHTML = '<tr><td colspan="9" class="empty-state">Nenhum dado para este filtro.</td></tr>';
+    return;
+  }
+  tbody.innerHTML = rows.map(r => {
+    const gmvTrad = numCaixa(r.gmv_tradicional);
+    const gmvPago = numCaixa(r.gmv_pago);
+    const pct = gmvTrad > 0 ? (gmvPago / gmvTrad * 100) : 0;
+    const pctClass = pct >= 80 ? 'val-up' : pct < 50 ? 'val-down' : '';
+    return `<tr>
+      <td>${r.date||'—'}</td>
+      <td>${r.shop||'—'}</td>
+      <td>${fmtInt(r.total_orders)}</td>
+      <td>${fmtBRL(gmvTrad)}</td>
+      <td class="${gmvPago > 0 ? 'val-up' : ''}">${fmtBRL(gmvPago)}</td>
+      <td class="${pctClass}">${pct.toFixed(1)}%</td>
+      <td class="${Number(r.unpaid_orders||0) > 0 ? 'val-down' : ''}">${fmtInt(r.unpaid_orders)}</td>
+      <td>${fmtInt(r.cancelled_orders)}</td>
+      <td>${r.atualizado_em||'—'}</td>
+    </tr>`;
+  }).join('');
+}
+
+function renderCaixaChart(rows){
+  const canvas = document.getElementById('chart-caixa');
+  if(!canvas) return;
+  // Agrupa por data (soma lojas), ordenado do mais antigo pro mais recente
+  const porDia = {};
+  rows.forEach(r => {
+    const d = r.date;
+    if(!porDia[d]) porDia[d] = {gmv_trad:0, gmv_pago:0};
+    porDia[d].gmv_trad += numCaixa(r.gmv_tradicional);
+    porDia[d].gmv_pago += numCaixa(r.gmv_pago);
+  });
+  const datas = Object.keys(porDia).sort();
+  const gmvTradSerie = datas.map(d => porDia[d].gmv_trad.toFixed(2));
+  const gmvPagoSerie = datas.map(d => porDia[d].gmv_pago.toFixed(2));
+
+  if(__chartCaixaInstance) __chartCaixaInstance.destroy();
+  __chartCaixaInstance = new Chart(canvas.getContext('2d'), {
+    type: 'line',
+    data: {
+      labels: datas,
+      datasets: [
+        {label:'GMV Tradicional', data: gmvTradSerie, borderColor:'#7C9CBF', backgroundColor:'rgba(124,156,191,0.12)', tension:0.25, fill:true},
+        {label:'GMV Pago', data: gmvPagoSerie, borderColor:'#FF7A3D', backgroundColor:'rgba(255,122,61,0.15)', tension:0.25, fill:true},
+      ]
+    },
+    options: {
+      responsive:true,
+      plugins:{ legend:{ labels:{ color:'#E8EAED' } } },
+      scales:{
+        x:{ ticks:{ color:'#9099A6' }, grid:{ color:'#2D333D' } },
+        y:{ ticks:{ color:'#9099A6' }, grid:{ color:'#2D333D' } }
+      }
+    }
+  });
+}
+
+function refreshCaixa(){
+  const rows = filterCaixaRows(__caixaRows.length > 0 ? __caixaRows : EXAMPLE_CASHFLOW);
+  renderCaixaKPIs(rows);
+  renderCaixaTable(rows);
+  renderCaixaChart(rows);
+  refreshWallet();
+  refreshPrevisao();
+  refreshPrazoReal();
+}
+
+document.querySelectorAll('.store-active-caixa').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.store-active-caixa').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    currentStoreCaixa = btn.dataset.store;
+    refreshCaixa();
+  });
+});
+
+document.querySelectorAll('.period-active-caixa').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.period-active-caixa').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    currentPeriodCaixa = Number(btn.dataset.period);
+    refreshCaixa();
+  });
+});
+
+/* =========================================================
+   RENDER — FLUXO DE CAIXA REAL (aba 'fluxo_caixa_real' — wallet)
+   Colunas: date, shop, qtd_transacoes, entradas, saidas, saldo_dia, atualizado_em
+   Reaproveita os mesmos filtros de loja/período da seção de pedidos (Aba 3).
+   ========================================================= */
+let __walletRows = [];
+let __chartWalletInstance = null;
+
+function filterWalletRowsPorLoja(rows){
+  // Igual ao filtro de loja usado em filterWalletRows, mas sem cortar por período
+  // (o cálculo do prazo real precisa de todo o histórico, não só a janela selecionada)
+  if(currentStoreCaixa === 'all') return rows;
+  const label = currentStoreCaixa === 'loja1' ? 'Loja 1' : 'Loja 2';
+  return rows.filter(r => (r.shop||'').trim() === label);
+}
+
+function filterWalletRows(rows){
+  let filtered = rows;
+  if(currentStoreCaixa !== 'all'){
+    const label = currentStoreCaixa === 'loja1' ? 'Loja 1' : 'Loja 2';
+    filtered = filtered.filter(r => (r.shop||'').trim() === label);
+  }
+  if(currentPeriodCaixa > 0){
+    const sorted = [...filtered].sort((a,b) => String(b.date).localeCompare(String(a.date)));
+    const dates = [...new Set(sorted.map(r=>r.date))].slice(0, currentPeriodCaixa);
+    filtered = filtered.filter(r => dates.includes(r.date));
+  }
+  return filtered.sort((a,b) => String(b.date).localeCompare(String(a.date)) || String(a.shop).localeCompare(String(b.shop)));
+}
+
+function renderWalletKPIs(rows){
+  const totEntradas = rows.reduce((s,r) => s + numCaixa(r.entradas), 0);
+  const totSaidas   = rows.reduce((s,r) => s + numCaixa(r.saidas), 0);
+  const saldo       = totEntradas - totSaidas;
+  const totTrans    = rows.reduce((s,r) => s + Number(r.qtd_transacoes||0), 0);
+  const kpis = [
+    {label:"Entradas (período)", value: fmtBRL(totEntradas), delta:"dinheiro liberado pela Shopee", trend:"up"},
+    {label:"Saídas (período)", value: fmtBRL(totSaidas), delta:"taxas, reembolsos, ajustes, saques", trend: totSaidas > 0 ? 'down' : 'flat'},
+    {label:"Saldo do período", value: fmtBRL(saldo), delta:"entradas - saídas", trend: saldo >= 0 ? 'up' : 'down'},
+    {label:"Transações no período", value: fmtInt(totTrans), delta:"movimentações na carteira", trend:"flat"},
+  ];
+  renderKPIs('kpi-grid-wallet', kpis);
+}
+
+function renderWalletTable(rows){
+  const tbody = document.querySelector('#table-wallet tbody');
+  if(rows.length === 0){
+    tbody.innerHTML = '<tr><td colspan="7" class="empty-state">Nenhum dado para este filtro.</td></tr>';
+    return;
+  }
+  tbody.innerHTML = rows.map(r => {
+    const entradas = numCaixa(r.entradas);
+    const saidas = numCaixa(r.saidas);
+    const saldo = numCaixa(r.saldo_dia);
+    return `<tr>
+      <td>${r.date||'—'}</td>
+      <td>${r.shop||'—'}</td>
+      <td>${fmtInt(r.qtd_transacoes)}</td>
+      <td class="val-up">${fmtBRL(entradas)}</td>
+      <td class="${saidas > 0 ? 'val-down' : ''}">${fmtBRL(saidas)}</td>
+      <td class="${saldo >= 0 ? 'val-up' : 'val-down'}">${fmtBRL(saldo)}</td>
+      <td>${r.atualizado_em||'—'}</td>
+    </tr>`;
+  }).join('');
+}
+
+function renderWalletChart(rows){
+  const canvas = document.getElementById('chart-wallet');
+  if(!canvas) return;
+  const porDia = {};
+  rows.forEach(r => {
+    const d = r.date;
+    if(!porDia[d]) porDia[d] = {entradas:0, saidas:0, saldo:0};
+    porDia[d].entradas += numCaixa(r.entradas);
+    porDia[d].saidas += numCaixa(r.saidas);
+    porDia[d].saldo += numCaixa(r.saldo_dia);
+  });
+  const datas = Object.keys(porDia).sort();
+  const entradasSerie = datas.map(d => porDia[d].entradas.toFixed(2));
+  const saidasSerie = datas.map(d => porDia[d].saidas.toFixed(2));
+  const saldoSerie = datas.map(d => porDia[d].saldo.toFixed(2));
+
+  if(__chartWalletInstance) __chartWalletInstance.destroy();
+  __chartWalletInstance = new Chart(canvas.getContext('2d'), {
+    type: 'bar',
+    data: {
+      labels: datas,
+      datasets: [
+        {type:'bar', label:'Entradas', data: entradasSerie, backgroundColor:'rgba(76,201,140,0.55)'},
+        {type:'bar', label:'Saídas', data: saidasSerie, backgroundColor:'rgba(255,90,90,0.55)'},
+        {type:'line', label:'Saldo do dia', data: saldoSerie, borderColor:'#FF7A3D', backgroundColor:'rgba(255,122,61,0.1)', tension:0.25, fill:false},
+      ]
+    },
+    options: {
+      responsive:true,
+      plugins:{ legend:{ labels:{ color:'#E8EAED' } } },
+      scales:{
+        x:{ ticks:{ color:'#9099A6' }, grid:{ color:'#2D333D' } },
+        y:{ ticks:{ color:'#9099A6' }, grid:{ color:'#2D333D' } }
+      }
+    }
+  });
+}
+
+function refreshWallet(){
+  const rows = filterWalletRows(__walletRows.length > 0 ? __walletRows : EXAMPLE_WALLET);
+  renderWalletKPIs(rows);
+  renderWalletTable(rows);
+  renderWalletChart(rows);
+}
+
+/* =========================================================
+   RENDER — PREVISÃO DE FLUXO DE CAIXA
+   Projeta o gmv_pago (pedidos já pagos pelo comprador, por dia — vem de
+   historico_pedidos) para a data provável de liberação na carteira,
+   somando um prazo médio ajustável pelo usuário. É uma estimativa: o
+   prazo real de liberação do escrow varia por pedido; comparar com os
+   dados reais da seção 04 ao longo do tempo ajuda a calibrar o número.
+   ========================================================= */
+let horizontePrevisao = 7;
+let __chartPrevisaoInstance = null;
+
+function addDiasISO(dataISO, dias){
+  const [ano, mes, dia] = dataISO.split('-').map(Number);
+  const d = new Date(Date.UTC(ano, mes - 1, dia));
+  d.setUTCDate(d.getUTCDate() + dias);
+  return d.toISOString().slice(0, 10);
+}
+
+function hojeISO(){
+  return new Date().toISOString().slice(0, 10);
+}
+
+function calcularPrevisao(rows, prazoDias){
+  // rows: linhas de historico_pedidos (já filtradas por loja, mas com todo o histórico de datas)
+  const hoje = hojeISO();
+  const projecoes = rows
+    .filter(r => numCaixa(r.gmv_pago) > 0)
+    .map(r => ({
+      date: addDiasISO(r.date, prazoDias),
+      shop: r.shop,
+      valor: numCaixa(r.gmv_pago),
+      pedidos: Number(r.pedidos_pagos_no_dia || 0),
+      origem: r.date,
+    }))
+    .filter(p => p.date > hoje); // só o que ainda não foi liberado (previsão futura)
+  return projecoes.sort((a,b) => a.date.localeCompare(b.date));
+}
+
+function renderPrevisaoKPIs(projecoes){
+  const total = projecoes.reduce((s,p) => s + p.valor, 0);
+  const dias = new Set(projecoes.map(p => p.date)).size;
+  const mediaDiaria = dias > 0 ? total / dias : 0;
+  const totalPedidos = projecoes.reduce((s,p) => s + p.pedidos, 0);
+  const kpis = [
+    {label:`Total previsto (${horizontePrevisao} dias)`, value: fmtBRL(total), delta:"soma dos valores projetados", trend:"up"},
+    {label:"Média diária prevista", value: fmtBRL(mediaDiaria), delta:"nos dias com previsão", trend:"flat"},
+    {label:"Pedidos na base da previsão", value: fmtInt(totalPedidos), delta:"pedidos pagos que ainda vão liberar", trend:"flat"},
+    {label:"Prazo usado na projeção", value: `${document.getElementById('input-prazo-liberacao')?.value || 7} dias`, delta:"ajustável acima", trend:"flat"},
+  ];
+  renderKPIs('kpi-grid-previsao', kpis);
+}
+
+function renderPrevisaoTable(projecoes){
+  const tbody = document.querySelector('#table-previsao tbody');
+  if(projecoes.length === 0){
+    tbody.innerHTML = '<tr><td colspan="5" class="empty-state">Nenhuma previsão para este horizonte — ajuste o prazo ou o período.</td></tr>';
+    return;
+  }
+  tbody.innerHTML = projecoes.map(p => `<tr>
+      <td>${p.date}</td>
+      <td>${p.shop||'—'}</td>
+      <td class="val-up">${fmtBRL(p.valor)}</td>
+      <td>${fmtInt(p.pedidos)}</td>
+      <td>${p.origem}</td>
+    </tr>`).join('');
+}
+
+function renderPrevisaoChart(projecoes){
+  const canvas = document.getElementById('chart-previsao');
+  if(!canvas) return;
+  const porDia = {};
+  projecoes.forEach(p => {
+    if(!porDia[p.date]) porDia[p.date] = 0;
+    porDia[p.date] += p.valor;
+  });
+  const hoje = hojeISO();
+  const datasFuturas = [];
+  for(let i = 1; i <= horizontePrevisao; i++) datasFuturas.push(addDiasISO(hoje, i));
+  const valoresFuturos = datasFuturas.map(d => (porDia[d] || 0).toFixed(2));
+
+  // Contexto: últimos dias reais de entrada, pra dar continuidade visual ao gráfico
+  const walletBase = filterWalletRows(__walletRows.length > 0 ? __walletRows : EXAMPLE_WALLET);
+  const porDiaReal = {};
+  walletBase.forEach(r => {
+    if(!porDiaReal[r.date]) porDiaReal[r.date] = 0;
+    porDiaReal[r.date] += numCaixa(r.entradas);
+  });
+  const datasPassadas = Object.keys(porDiaReal).sort().slice(-horizontePrevisao);
+  const valoresPassados = datasPassadas.map(d => (porDiaReal[d] || 0).toFixed(2));
+
+  const labels = [...datasPassadas, ...datasFuturas];
+  const serieReal = [...valoresPassados, ...datasFuturas.map(() => null)];
+  const seriePrevista = [...datasPassadas.map(() => null), ...valoresFuturos];
+
+  if(__chartPrevisaoInstance) __chartPrevisaoInstance.destroy();
+  __chartPrevisaoInstance = new Chart(canvas.getContext('2d'), {
+    type: 'bar',
+    data: {
+      labels,
+      datasets: [
+        {label:'Recebido (real)', data: serieReal, backgroundColor:'rgba(76,201,140,0.6)'},
+        {label:'Previsto', data: seriePrevista, backgroundColor:'rgba(255,122,61,0.45)'},
+      ]
+    },
+    options: {
+      responsive:true,
+      plugins:{ legend:{ labels:{ color:'#E8EAED' } } },
+      scales:{
+        x:{ ticks:{ color:'#9099A6' }, grid:{ color:'#2D333D' } },
+        y:{ ticks:{ color:'#9099A6' }, grid:{ color:'#2D333D' } }
+      }
+    }
+  });
+}
+
+function refreshPrevisao(){
+  const prazoInput = document.getElementById('input-prazo-liberacao');
+  const prazoDias = Math.max(1, Number(prazoInput?.value || 7));
+  const baseRows = filterCaixaRowsPorLoja(__caixaRows.length > 0 ? __caixaRows : EXAMPLE_CASHFLOW);
+  const projecoes = calcularPrevisao(baseRows, prazoDias)
+    .filter(p => p.date <= addDiasISO(hojeISO(), horizontePrevisao));
+  renderPrevisaoKPIs(projecoes);
+  renderPrevisaoTable(projecoes);
+  renderPrevisaoChart(projecoes);
+}
+
+function filterCaixaRowsPorLoja(rows){
+  // Igual ao filtro de loja usado em filterCaixaRows, mas sem cortar por período
+  // (a previsão precisa de todo o histórico de pagamentos, não só a janela selecionada)
+  if(currentStoreCaixa === 'all') return rows;
+  const label = currentStoreCaixa === 'loja1' ? 'Loja 1' : 'Loja 2';
+  return rows.filter(r => (r.shop||'').trim() === label);
+}
+
+/* =========================================================
+   PRAZO REAL DE LIBERAÇÃO — correlação cruzada entre gmv_pago e entradas
+   Testa deslocamentos de 0 a 30 dias e acha o que melhor alinha as duas
+   curvas diárias (maior correlação de Pearson). É uma estimativa
+   estatística, não um número exato por pedido — precisa de histórico
+   suficiente (várias semanas) pra ficar confiável.
+   ========================================================= */
+let __chartPrazoRealInstance = null;
+
+function construirSeriesDiarias(){
+  const caixaBase = filterCaixaRowsPorLoja(__caixaRows.length > 0 ? __caixaRows : EXAMPLE_CASHFLOW);
+  const pagoPorDia = {};
+  caixaBase.forEach(r => { pagoPorDia[r.date] = (pagoPorDia[r.date] || 0) + numCaixa(r.gmv_pago); });
+
+  const walletBase = filterWalletRowsPorLoja(__walletRows.length > 0 ? __walletRows : EXAMPLE_WALLET);
+  const entradaPorDia = {};
+  walletBase.forEach(r => { entradaPorDia[r.date] = (entradaPorDia[r.date] || 0) + numCaixa(r.entradas); });
+
+  return { pagoPorDia, entradaPorDia };
+}
+
+function correlacaoPearson(xs, ys){
+  const n = xs.length;
+  if(n < 3) return null;
+  const mediaX = xs.reduce((a,b) => a+b, 0) / n;
+  const mediaY = ys.reduce((a,b) => a+b, 0) / n;
+  let num = 0, denX = 0, denY = 0;
+  for(let i = 0; i < n; i++){
+    const dx = xs[i] - mediaX, dy = ys[i] - mediaY;
+    num += dx*dy; denX += dx*dx; denY += dy*dy;
+  }
+  if(denX === 0 || denY === 0) return null;
+  return num / Math.sqrt(denX*denY);
+}
+
+function estimarPrazoReal(){
+  const { pagoPorDia, entradaPorDia } = construirSeriesDiarias();
+  const datasPago = Object.keys(pagoPorDia).sort();
+  const resultados = [];
+  for(let lag = 0; lag <= 30; lag++){
+    const xs = [], ys = [];
+    datasPago.forEach(d => {
+      const dEntrada = addDiasISO(d, lag);
+      if(Object.prototype.hasOwnProperty.call(entradaPorDia, dEntrada)){
+        xs.push(pagoPorDia[d]);
+        ys.push(entradaPorDia[dEntrada]);
+      }
+    });
+    const corr = correlacaoPearson(xs, ys);
+    resultados.push({ lag, corr, n: xs.length });
+  }
+  const validos = resultados.filter(r => r.corr !== null && r.n >= 3);
+  const melhor = validos.length > 0
+    ? validos.reduce((best, cur) => (cur.corr > best.corr ? cur : best), validos[0])
+    : null;
+  return { resultados, melhor };
+}
+
+function renderPrazoRealKPIs(melhor){
+  if(!melhor){
+    renderKPIs('kpi-grid-prazo-real', [
+      {label:"Prazo médio real estimado", value:"—", delta:"histórico insuficiente ainda", trend:"flat"},
+    ]);
+    return;
+  }
+  const confianca = melhor.corr >= 0.7 ? 'alta' : melhor.corr >= 0.4 ? 'moderada' : 'baixa';
+  const kpis = [
+    {label:"Prazo médio real estimado", value:`${melhor.lag} dias`, delta:"maior correlação encontrada", trend:"flat"},
+    {label:"Confiança da estimativa", value:`${(melhor.corr*100).toFixed(0)}%`, delta:`correlação ${confianca}, com ${melhor.n} pontos`, trend: melhor.corr >= 0.7 ? 'up' : melhor.corr >= 0.4 ? 'flat' : 'down'},
+  ];
+  renderKPIs('kpi-grid-prazo-real', kpis);
+}
+
+function renderPrazoRealChart(resultados){
+  const canvas = document.getElementById('chart-prazo-real');
+  if(!canvas) return;
+  const labels = resultados.map(r => `${r.lag}d`);
+  const valores = resultados.map(r => r.corr === null ? null : (r.corr*100).toFixed(1));
+
+  if(__chartPrazoRealInstance) __chartPrazoRealInstance.destroy();
+  __chartPrazoRealInstance = new Chart(canvas.getContext('2d'), {
+    type: 'line',
+    data: {
+      labels,
+      datasets: [
+        {label:'Correlação (%) entre pagamento e entrada, por prazo testado', data: valores, borderColor:'#FF7A3D', backgroundColor:'rgba(255,122,61,0.15)', tension:0.3, fill:true, pointRadius:2},
+      ]
+    },
+    options: {
+      responsive:true,
+      plugins:{ legend:{ labels:{ color:'#E8EAED' } } },
+      scales:{
+        x:{ title:{ display:true, text:'Prazo testado (dias)', color:'#9099A6' }, ticks:{ color:'#9099A6' }, grid:{ color:'#2D333D' } },
+        y:{ title:{ display:true, text:'Correlação (%)', color:'#9099A6' }, ticks:{ color:'#9099A6' }, grid:{ color:'#2D333D' } }
+      }
+    }
+  });
+}
+
+function refreshPrazoReal(){
+  const { resultados, melhor } = estimarPrazoReal();
+  const aviso = document.getElementById('aviso-prazo-real');
+  if(aviso) aviso.style.display = (!melhor || melhor.n < 10) ? 'block' : 'none';
+  renderPrazoRealKPIs(melhor);
+  renderPrazoRealChart(resultados);
+  window.__melhorPrazoReal = melhor;
+}
+
+document.getElementById('btn-usar-prazo-real')?.addEventListener('click', () => {
+  if(window.__melhorPrazoReal){
+    const input = document.getElementById('input-prazo-liberacao');
+    if(input){
+      input.value = window.__melhorPrazoReal.lag;
+      refreshPrevisao();
+    }
+  }
+});
+
+document.querySelectorAll('.period-active-previsao').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.period-active-previsao').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    horizontePrevisao = Number(btn.dataset.horizonte);
+    refreshPrevisao();
+  });
+});
+
+document.getElementById('input-prazo-liberacao')?.addEventListener('input', () => refreshPrevisao());
+
+/* =========================================================
    INIT
    ========================================================= */
 async function initDashboard(){
@@ -1683,10 +2350,27 @@ async function initDashboard(){
   refreshTab2();
   renderActions('actions-list-tab2', EXAMPLE_ACTIONS_TAB2);
 
+  // ABA FLUXO DE CAIXA — pedidos reais (historico_pedidos)
+  const fetched3 = await fetchSheetData(SHEET_URL_CASHFLOW);
+  if(fetched3 && !fetched3.error && Array.isArray(fetched3) && fetched3.length > 0){
+    __caixaRows = fetched3;
+    document.getElementById('banner-caixa').style.display = 'none';
+  }
+
+  // ABA FLUXO DE CAIXA — fluxo de caixa real (fluxo_caixa_real / wallet)
+  const fetched4 = await fetchSheetData(SHEET_URL_WALLET);
+  if(fetched4 && !fetched4.error && Array.isArray(fetched4) && fetched4.length > 0){
+    __walletRows = fetched4;
+  }
+
+  refreshCaixa();
+
   // UPDATE INDICATOR
-  const anyRealData = (fetched1 && !fetched1.error) || (fetched2 && !fetched2.error);
+  const anyRealData = (fetched1 && !fetched1.error) || (fetched2 && !fetched2.error) || (fetched3 && !fetched3.error) || (fetched4 && !fetched4.error);
   const anyFailure  = (SHEET_URL_COMPETITORS && fetched1 && fetched1.error) ||
-                      (SHEET_URL_STORES      && fetched2 && fetched2.error);
+                      (SHEET_URL_STORES      && fetched2 && fetched2.error) ||
+                      (SHEET_URL_CASHFLOW    && fetched3 && fetched3.error) ||
+                      (SHEET_URL_WALLET      && fetched4 && fetched4.error);
   if(anyFailure){
     setUpdateIndicator('fail', new Date());
   } else if(anyRealData){
