@@ -1,513 +1,336 @@
 """
-apify_to_sheets.py — Minas Clean
-Coleta dados de concorrentes via Apify e salva na aba 'concorrentes' do Google Sheets.
+shopee_ads_to_sheets.py — Minas Clean
+Puxa performance de Ads (CPC) da Shopee Open API por loja e salva na aba
+'historico_ads' do Google Sheets (fonte da Aba 2 / ROAS do dashboard).
 
-⚠️ 01/07/2026 — DESCOBERTO: o actor gio21/shopee-scraper devolvia DADOS MOCK/FAKE
-(campo _notice = "THIS IS MOCK / SAMPLE DATA — not real Shopee products").
-Trocado para xtracto/shopee-scraper — TESTADO manualmente no Apify Console
-com dado real em 2026-07-01/02:
-  - mode="keyword" ("pano microfibra 35x35"): 5 produtos reais, nomes/preços/
-    URLs batendo com anúncios reais da Shopee Brasil.
-  - mode="shop" (loja "minasclean"): 5 produtos reais, shop_id=1781178701
-    batendo com o Shop ID oficial já validado via API da Shopee.
-Preço vem em CENTAVOS (ex: 2790 = R$ 27,90) — normalizar_item() já converte.
-⚠️ PENDENTE: mode="shop" só devolveu 5 produtos mesmo pedindo 40 — pode não
-respeitar maxProducts. Conferir no primeiro run de produção se cobre os 24
-SKUs ou se falta ajustar (ver nota em rodar_apify_loja()).
-Não tem campo de nome da loja em texto — shopName fica como "Loja #{id}".
-Também foi adicionada detectar_dados_mock(), que aborta a coleta (sem salvar
-nada) se o actor devolver qualquer sinal de dado fake de novo — proteção
-permanente, independente de qual actor estiver configurado.
+⚠️ PRIMEIRA EXECUÇÃO: use sempre o modo diagnóstico primeiro:
+    python shopee_ads_to_sheets.py diagnostico
+Isso chama a API para uma janela pequena (últimos 3 dias) e SÓ IMPRIME o JSON
+bruto da resposta — nada é salvo na planilha. Serve para:
+  1) confirmar que a conta tem permissão de Ads liberada pela Shopee
+     (senão vem 'error_permission_denied' — precisa abrir chamado com o
+     Shopee Partner Support pedindo acesso à Ads API);
+  2) conferir se os nomes de campo batem com o que o código espera abaixo
+     (ver mapear_linha()) antes de rodar de verdade.
 
-Uso: python apify_to_sheets.py
-Agendar: todo dia às 06:00 via Agendador de Tarefas do Windows
+Depois de conferir a amostra, rode para valer:
+    python shopee_ads_to_sheets.py coletar
+
+Endpoint usado: /api/v2/ads/get_all_cpc_ads_daily_performance
+(performance diária em nível de LOJA — impressões, cliques, gasto, GMV etc.
+ agregados, que é exatamente o granularidade que a Aba 2 usa: 1 linha por
+ dia por loja).
+
+Autenticação: lê partner_id/partner_key/shop_id/access_token/refresh_token
+de config.json (mesmo arquivo usado pelo shopee_auth_setup.py). Sempre que
+roda, tenta renovar o access_token via refresh_token antes de chamar a API
+(o access_token expira em ~4h; o refresh_token dura mais e é atualizado de
+volta no config.json a cada renovação).
 """
 
-import os, json, tempfile
+import os, sys, json, time, hmac, hashlib, tempfile
+from datetime import date, timedelta
 import requests
-import time
-from datetime import date
 import gspread
 from google.oauth2.service_account import Credentials
 
 # ── CONFIGURAÇÃO ──────────────────────────────────────────────
-# Funciona local (hardcoded) e no GitHub Actions (variável de ambiente)
-APIFY_TOKEN  = os.environ.get("APIFY_TOKEN", "")  # configure via GitHub Secrets
+HOST = "https://partner.shopeemobile.com"
+CONFIG_PATH = os.environ.get("SHOPEE_CONFIG_FILE", "config.json")
+ABA_NOME = "historico_ads"
+DIAS_RETENCAO = 400  # ~13 meses de histórico de ads
 
-# Testado com dado real em 2026-07-01 (ver nota acima). Não precisa de cookie.
-ACTOR_ID = "xtracto~shopee-scraper"
+# quantos dias voltar na primeira coleta "cheia" (catch-up). Depois disso o
+# script só busca os últimos N dias a cada execução (evita reprocessar tudo).
+JANELA_COLETA_NORMAL = 10
 
-SHEET_ID     = "1IXN9PtJnqJfXDevC7Iy1FTBbrMF-rquXFZdlaaIRTDI"
-ABA_NOME     = "concorrentes"
+# ── CONFIG / CREDENCIAIS GOOGLE ───────────────────────────────
+def carregar_config():
+    if not os.path.isfile(CONFIG_PATH):
+        sys.exit(f"❌ Não achei {CONFIG_PATH}. Rode este script na pasta 'scripts'.")
+    with open(CONFIG_PATH, "r", encoding="utf-8") as f:
+        return json.load(f)
 
-# Credenciais Google: arquivo local ou variável de ambiente (GitHub Actions)
-_CREDS_ENV = os.environ.get("GOOGLE_CREDENTIALS")
-if _CREDS_ENV:
-    _tmp = tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False)
-    _tmp.write(_CREDS_ENV)
-    _tmp.close()
-    SERVICE_ACCOUNT_FILE = _tmp.name
-else:
-    SERVICE_ACCOUNT_FILE = r"C:\Users\joaom\OneDrive\Documentos\shopee_ads_dashboard\mnt\user-data\outputs\shopee_ads_dashboard\scripts\credentials.json"
+def salvar_config(cfg):
+    with open(CONFIG_PATH, "w", encoding="utf-8") as f:
+        json.dump(cfg, f, ensure_ascii=False, indent=2)
 
-# Buscas de concorrentes — todos os tamanhos do catálogo Minas Clean
-TERMOS_BUSCA = [
-    "pano microfibra 35x35",
-    "pano microfibra 40x40",
-    "pano microfibra 40x60",
-    "pano microfibra 35x55",
-    "pano microfibra 50x70",
-    "pano microfibra 60x80",
-    "pano chao microfibra gigante 70x100",
-    "pano microfibra 30x30",
-]
+def service_account_file(cfg):
+    _env = os.environ.get("GOOGLE_CREDENTIALS")
+    if _env:
+        tmp = tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False)
+        tmp.write(_env)
+        tmp.close()
+        return tmp.name
+    caminho = cfg["google_sheets"]["service_account_json"]
+    if not os.path.isabs(caminho):
+        caminho = os.path.join(os.path.dirname(os.path.abspath(CONFIG_PATH)), caminho)
+    return caminho
 
-# URL da sua loja — mantido só como referência/logging
-MINHA_LOJA_URL  = "https://shopee.com.br/minasclean"
-MINHA_LOJA2_URL = "https://shopee.com.br/maximahome"
-MINHA_LOJA_TAG = "minha_loja"
-
-# ⚠️ 02/07/2026 — mode="shop" do actor xtracto/shopee-scraper está CAPADO em
-# ~5-6 produtos, não importa o valor de maxProducts (testado manualmente,
-# confirmado no log/JSON de 3 runs diferentes). Não dá pra confiar nele pra
-# pegar os 24 SKUs. NOVA ESTRATÉGIA: em vez de uma chamada separada por loja,
-# os shop_id abaixo (confirmados navegando manualmente até um produto de
-# cada loja) são usados pra RECONHECER seus próprios produtos dentro dos
-# resultados normais de busca por palavra-chave (que não tem esse limite).
-# rodar_apify_loja() fica no código só de referência, não é mais chamada.
-MINHA_LOJA_SHOPID  = "1781178701"  # minasclean — confirmado batendo com API oficial da Shopee
-MINHA_LOJA2_SHOPID = "1810599865"  # maximahome — confirmado navegando manualmente até um produto
-
-MAX_ITENS = 13  # por termo — ajustado em 02/07/2026 pra caber em ~$29/mês
-# rodando 2x/semana no plano Starter da Apify ($30/1.000 resultados do
-# actor xtracto/shopee-scraper: 8 termos × 13 × $0,03 × ~8,7 rodadas/mês
-# ≈ $27/mês, com margem). Se aumentar a frequência ou os termos de busca,
-# recalcular: (orçamento mensal ÷ rodadas/mês) ÷ $0,03 ÷ nº de termos.
-
-# Você tem até 24 SKUs (variações de tamanho x kit) espalhados entre as duas
-# lojas. 20 poderia deixar SKU de fora numa loja com catálogo cheio — usamos
-# uma margem maior aqui pra garantir que a coleta pega TODOS os seus produtos,
-# não só os mais vendidos/melhor rankeados.
-MAX_ITENS_LOJA = 40  # não usado mais (ver nota acima) — mantido só de referência
-# ─────────────────────────────────────────────────────────────
-
-def detectar_dados_mock(items):
-    """Verifica se o actor devolveu dados FAKE em vez de dados reais da Shopee.
-    Alguns actors da Apify devolvem 'sample/mock data' silenciosamente quando
-    o usuário está em plano gratuito ou quando a raspagem real falha — sem dar
-    erro, só preenchendo os campos com dado inventado (foi o que aconteceu
-    com o gio21/shopee-scraper em 01/07/2026: campo _notice = 'THIS IS MOCK /
-    SAMPLE DATA — not real Shopee products').
-    Se detectarmos qualquer sinal disso, a coleta é abortada SEM salvar nada."""
-    if not items:
-        return False
-    sinais_mock = [
-        "mock", "sample data", "not real", "fake data",
-        "this is a demo", "test data only", "_notice",
-    ]
-    for item in items[:5]:  # checa uma amostra dos primeiros itens
-        texto = json.dumps(item, ensure_ascii=False).lower()
-        if any(s in texto for s in sinais_mock):
-            return True
-    return False
-
-def normalizar_item(raw):
-    """Normaliza um item bruto do actor pra um formato único.
-    Suporta 3 formatos:
-      (a) xtracto/shopee-scraper — CONFIRMADO com dado real em 2026-07-01.
-          Campos flat: item_id, shop_id, name, price, original_price,
-          discount_pct, rating, rating_count, sold_count, url, currency.
-          Preço vem em CENTAVOS (ex: 2790 = R$ 27,90).
-      (b) formato 'item_basic' aninhado (API interna genérica da Shopee,
-          preço em microunidades: R$ real = price / 100000) — fallback.
-      (c) formato 'flat' antigo do gio21 (mock, mantido só por segurança) —
-          fallback final.
-    Se algum campo vier vazio/zero de forma consistente, é sinal de que o
-    nome do campo mudou — conferir com 1 item bruto real de novo."""
-    if "item_id" in raw or "shop_id" in raw:
-        # (a) Formato confirmado do xtracto/shopee-scraper
-        preco = raw.get("price")
-        preco_orig = raw.get("original_price")
-        return {
-            "name": raw.get("name") or "",
-            "price": (preco / 100) if preco not in (None, "") else 0,
-            "priceMax": None,
-            "originalPrice": (preco_orig / 100) if preco_orig not in (None, "") else None,
-            "discountPercent": raw.get("discount_pct") or 0,
-            "isOnSale": bool(raw.get("discount_pct")),
-            "historicalSoldEstimated": raw.get("sold_count") or "",
-            "rating": raw.get("rating") or 0,
-            "reviewCount": raw.get("rating_count") or 0,
-            "stock": raw.get("stock") or 0,
-            "shopName": raw.get("shop_name") or raw.get("shop") or (f"Loja #{raw.get('shop_id')}" if raw.get("shop_id") else ""),
-            "itemid": raw.get("item_id"),
-            "shopid": raw.get("shop_id"),
-            "url": raw.get("url") or "",
-        }
-
-    base = raw.get("item_basic") if isinstance(raw.get("item_basic"), dict) else raw
-
-    def pega(*chaves, default=None):
-        for k in chaves:
-            if k in base and base[k] not in (None, ""):
-                return base[k]
-        return default
-
-    preco_bruto = pega("price", "priceMin")
-    preco_original_bruto = pega("price_before_discount", "originalPrice")
-    # Formato item_basic da Shopee vem em microunidades (ex: 850000 = R$ 8,50 x 100000)
-    eh_microunidade = isinstance(preco_bruto, (int, float)) and preco_bruto and preco_bruto > 100000
-    def conv(v):
-        if v in (None, ""): return None
-        return v / 100000 if eh_microunidade else v
-
-    return {
-        "name":  pega("name", "title", default=""),
-        "price": conv(preco_bruto) or 0,
-        "priceMax": conv(pega("price_max", "priceMax")),
-        "originalPrice": conv(preco_original_bruto),
-        "discountPercent": pega("discount", "discountPercent", "raw_discount", default=0),
-        "isOnSale": bool(pega("discount", "discountPercent", "isOnSale", default=0)),
-        "historicalSoldEstimated": pega("historical_sold", "historicalSoldEstimated", "sold", default=""),
-        "rating": pega("item_rating", "rating", default=0) if not isinstance(pega("item_rating"), dict) else (pega("item_rating") or {}).get("rating_star", 0),
-        "reviewCount": pega("cmt_count", "reviewCount", default=0),
-        "stock": pega("stock", default=0),
-        "shopName": pega("shop_name", "shopName", default=""),
-        "itemid": pega("itemid", "item_id"),
-        "shopid": pega("shopid", "shop_id"),
-        "url": pega("url"),  # se o actor não devolver url pronta, ver construir_url_shopee()
-    }
-
-def construir_url_shopee(item):
-    """Monta a URL do produto no padrão da Shopee (i.{shopid}.{itemid})
-    quando o actor não devolve a URL pronta, mas devolve itemid/shopid."""
-    if item.get("url"):
-        return item["url"]
-    if item.get("itemid") and item.get("shopid"):
-        nome_slug = (item.get("name") or "produto").lower()
-        nome_slug = "".join(c if c.isalnum() else "-" for c in nome_slug)
-        nome_slug = "-".join(filter(None, nome_slug.split("-")))[:100]
-        return f"https://shopee.com.br/{nome_slug}-i.{item['shopid']}.{item['itemid']}"
-    return ""
-
-def corrigir_offset_nomes(items):
-    """⚠️ 06/07/2026 — CONFIRMADO (comparando itens reais de uma run de produção
-    do actor xtracto/shopee-scraper, termo 'pano microfibra 35x35', 2026-07-02):
-    o campo 'name' vem DESLOCADO 1 POSIÇÃO PRA FRENTE em relação a item_id/
-    shop_id/price/url dentro do lote — ou seja, o nome que aparece na posição N
-    do lote bruto pertence de verdade ao item da posição N+1.
-    Confirmado abrindo a página real da Shopee: o item na posição 10 (shop_id
-    860090337, preço R$11,60 — batendo com a página real) tinha, no lote bruto,
-    o NOME do item da posição 9 ("Kit com 10 - Pano Microfibra Flanela - 30 x
-    30cm..." — que é o título real do produto da posição 10, não da posição 9).
-    Esse bug já tinha sido visto e corrigido com o actor anterior (gio21), mas
-    a correção não existia para o formato do xtracto/shopee-scraper (campos
-    item_id/shop_id/name flat) — por isso passou despercebido até agora.
-    Aqui corrigimos deslocando 'name' pra frente: o nome correto do item i é o
-    'name' que veio na posição i-1 do lote bruto. O PRIMEIRO item do lote perde
-    o nome com confiabilidade (não temos o anterior pra confirmar) — nesse caso
-    preferimos marcar como vazio a manter um nome errado, já que um nome errado
-    causa classificação errada de tamanho/kit no dashboard, o que é pior do que
-    faltar o dado."""
-    if not items or len(items) < 2:
-        return items
-    # só faz sentido corrigir no formato flat (item_id/shop_id), que é o formato
-    # onde o bug foi confirmado — não mexe em outros formatos por segurança
-    if not all(("item_id" in it or "shop_id" in it) for it in items[:3]):
-        return items
-
-    corrigidos = []
-    for i, it in enumerate(items):
-        novo = dict(it)
-        if i - 1 >= 0:
-            novo["name"] = items[i - 1].get("name", "")
-        else:
-            novo["name"] = ""  # primeiro item do lote: sem anterior pra confirmar
-        corrigidos.append(novo)
-    return corrigidos
-
-def achatar(v):
-    """Garante que o valor é um tipo simples (texto/número) antes de ir pro
-    Sheets. Com fetchDetail=True, alguns campos passaram a vir como lista ou
-    dicionário em vez de texto/número simples (ex.: sold_count com metadados
-    aninhados) — o Google Sheets rejeita a linha INTEIRA quando isso acontece,
-    então precisamos achatar qualquer valor complexo pra string antes."""
-    if isinstance(v, (dict, list)):
-        return json.dumps(v, ensure_ascii=False)[:200]  # corta pra não estourar limite de célula
-    return v
-
-def rodar_apify(termo):
-    """Dispara o Actor e aguarda conclusão. Retorna lista de produtos."""
-    print(f"\n  🔍 Buscando: '{termo}'")
-
-    # Inicia o run
-    url = f"https://api.apify.com/v2/acts/{ACTOR_ID}/runs?token={APIFY_TOKEN}"
-    payload = {
-        "mode": "keyword",
-        "keyword": termo,
-        "country": "br",
-        "maxProducts": MAX_ITENS,
-        "sort": "relevancy",
-        # ⚠️ 06/07/2026: fetchDetail=True foi TESTADO e revertido. Mesmo com
-        # fetchDetail=true (visitando a página completa do produto), os campos
-        # "sold" e "historical_sold" continuam null — a Shopee Brasil
-        # aparentemente não expõe esse contador nessa fonte (diferente de
-        # outros países onde a Shopee opera). Além de não trazer o dado que
-        # queríamos, fetchDetail=true muda a estrutura de outros campos (nome
-        # da loja passa a vir dentro de um objeto aninhado "shop", rating
-        # passa a se chamar "rating_star" em vez de "rating"), quebrando o
-        # que já funcionava. NÃO reativar sem antes confirmar uma fonte de
-        # dado de vendas que realmente funcione.
-    }
-    resp = requests.post(url, json=payload, timeout=30)
-    if not resp.ok:
-        print(f"  ❌ Apify recusou iniciar o run (HTTP {resp.status_code}):")
-        print(f"     {resp.text[:500]}")
-    resp.raise_for_status()
-    run = resp.json()["data"]
-    run_id = run["id"]
-    print(f"  Run ID: {run_id} — aguardando...")
-
-    # Aguarda conclusão (máx 8 min — com fetchDetail=True a run visita cada
-    # produto individualmente e fica bem mais lenta que antes; 3 min não é
-    # mais suficiente pra maioria dos casos)
-    for _ in range(48):
-        time.sleep(10)
-        status_url = f"https://api.apify.com/v2/actor-runs/{run_id}?token={APIFY_TOKEN}"
-        info = requests.get(status_url, timeout=15).json()["data"]
-        status = info["status"]
-        print(f"  Status: {status}")
-        if status in ("SUCCEEDED", "FAILED", "ABORTED", "TIMED-OUT"):
-            break
-
-    if status != "SUCCEEDED":
-        print(f"  ⚠️ Run não concluído: {status}")
-        return []
-
-    # Busca resultados do dataset
-    dataset_id = info["defaultDatasetId"]
-    items_url = (
-        f"https://api.apify.com/v2/datasets/{dataset_id}/items"
-        f"?token={APIFY_TOKEN}&format=json&clean=true"
-    )
-    items = requests.get(items_url, timeout=30).json()
-    items = corrigir_offset_nomes(items)
-
-    if detectar_dados_mock(items):
-        print(f"  🚨 ALERTA: o actor '{ACTOR_ID}' devolveu DADOS MOCK/FAKE para '{termo}', não dados reais!")
-        raise RuntimeError(
-            f"Actor {ACTOR_ID} devolveu dados mock/sample (não reais) para o termo '{termo}'. "
-            f"Coleta abortada — NADA foi salvo no Sheets. Verifique o plano/config do actor no Apify Console."
-        )
-
-    print(f"  ✅ {len(items)} produtos coletados")
-    return items
-
-def rodar_apify_loja(shop_url):
-
-    """Coleta produtos de uma loja específica.
-    ✅ CONFIRMADO com dado real em 2026-07-02 — mode="shop" + campo "shop"
-    (username) retornou 5 produtos reais da Loja 1 (minasclean), com
-    shop_id=1781178701 batendo com o Shop ID real já validado via API
-    oficial da Shopee em sessão anterior.
-    ⚠️ PENDENTE: só voltaram 5 produtos mesmo pedindo maxProducts=40 — esse
-    modo pode ter um limite padrão de amostra que ignora "maxProducts".
-    Você tem até 24 SKUs; se a coleta real também trouxer só ~5, boa parte
-    do catálogo vai ficar sem preço próprio no dashboard. Verificar depois
-    do primeiro run de produção — se persistir, procurar um campo tipo
-    "limit"/"maxPages" específico do modo shop, ou trocar de estratégia
-    (ex: rodar "keyword" com o nome de cada produto)."""
-    shop_username = shop_url.rstrip("/").split("/")[-1]
-    print(f"  🏪 Coletando loja: {shop_url} (username: {shop_username})")
-    url = f"https://api.apify.com/v2/acts/{ACTOR_ID}/runs?token={APIFY_TOKEN}"
-    payload = {
-        "mode": "shop",
-        "shop": shop_username,
-        "country": "br",
-        "maxProducts": MAX_ITENS_LOJA,
-        "sort": "relevancy",
-    }
-    resp = requests.post(url, json=payload, timeout=30)
-    resp.raise_for_status()
-    run = resp.json()["data"]
-    run_id = run["id"]
-    print(f"  Run ID: {run_id} — aguardando...")
-
-    for _ in range(18):
-        time.sleep(10)
-        status_url = f"https://api.apify.com/v2/actor-runs/{run_id}?token={APIFY_TOKEN}"
-        info = requests.get(status_url, timeout=15).json()["data"]
-        status = info["status"]
-        print(f"  Status: {status}")
-        if status in ("SUCCEEDED", "FAILED", "ABORTED", "TIMED-OUT"):
-            break
-
-    if status != "SUCCEEDED":
-        print(f"  ⚠️ Run falhou: {status}")
-        return []
-
-    dataset_id = info["defaultDatasetId"]
-    items_url = (
-        f"https://api.apify.com/v2/datasets/{dataset_id}/items"
-        f"?token={APIFY_TOKEN}&format=json&clean=true"
-    )
-    items = requests.get(items_url, timeout=30).json()
-    items = corrigir_offset_nomes(items)
-
-    if detectar_dados_mock(items):
-        print(f"  🚨 ALERTA: o actor '{ACTOR_ID}' devolveu DADOS MOCK/FAKE para a loja '{shop_url}'!")
-        raise RuntimeError(
-            f"Actor {ACTOR_ID} devolveu dados mock/sample (não reais) para '{shop_url}'. "
-            f"Coleta abortada — NADA foi salvo no Sheets."
-        )
-
-    print(f"  ✅ {len(items)} produtos coletados da loja")
-    return items
-
-def conectar_sheets():
+def conectar_sheets(cfg):
     scopes = [
         "https://www.googleapis.com/auth/spreadsheets",
         "https://www.googleapis.com/auth/drive",
     ]
-    creds = Credentials.from_service_account_file(SERVICE_ACCOUNT_FILE, scopes=scopes)
+    creds = Credentials.from_service_account_file(service_account_file(cfg), scopes=scopes)
     return gspread.authorize(creds)
 
-DIAS_RETENCAO = 60  # apaga linhas com mais de 60 dias
+# ── ASSINATURA / CHAMADAS SHOPEE ──────────────────────────────
+def assinar(partner_id, partner_key, path, timestamp, access_token="", shop_id=""):
+    base = f"{partner_id}{path}{timestamp}{access_token}{shop_id}"
+    return hmac.new(partner_key.encode(), base.encode(), hashlib.sha256).hexdigest()
 
+def renovar_token(shop, partner_id, partner_key):
+    """Troca o refresh_token por um access_token novo. Retorna dict atualizado ou None se falhar."""
+    path = "/api/v2/auth/access_token/get"
+    ts = int(time.time())
+    sign = assinar(partner_id, partner_key, path, ts)  # rota pública: sem access_token/shop_id no sign
+    url = f"{HOST}{path}?partner_id={partner_id}&timestamp={ts}&sign={sign}"
+    body = {
+        "refresh_token": shop["refresh_token"],
+        "partner_id": int(partner_id),
+        "shop_id": int(shop["shop_id"]),
+    }
+    r = requests.post(url, json=body, timeout=30)
+    data = r.json()
+    if data.get("error"):
+        print(f"  ❌ Erro ao renovar token da {shop.get('name','loja')}: {data.get('error')} — {data.get('message')}")
+        return None
+    return {
+        "access_token": data["access_token"],
+        "refresh_token": data["refresh_token"],
+    }
+
+def chamar_ads_performance(shop, partner_id, partner_key, data_inicio, data_fim):
+    """Chama get_all_cpc_ads_daily_performance para uma loja. Retorna o JSON bruto da resposta."""
+    path = "/api/v2/ads/get_all_cpc_ads_daily_performance"
+    ts = int(time.time())
+    access_token = shop["access_token"]
+    shop_id = int(shop["shop_id"])
+    sign = assinar(partner_id, partner_key, path, ts, access_token, shop_id)
+    params = {
+        "partner_id": partner_id,
+        "timestamp": ts,
+        "access_token": access_token,
+        "shop_id": shop_id,
+        "sign": sign,
+        "start_date": data_inicio.strftime("%d-%m-%Y"),  # Shopee exige DD-MM-AAAA
+        "end_date": data_fim.strftime("%d-%m-%Y"),
+    }
+    r = requests.get(f"{HOST}{path}", params=params, timeout=30)
+    try:
+        return r.json()
+    except Exception:
+        print(f"  ⚠️ Resposta não-JSON (status {r.status_code}): {r.text[:500]}")
+        return None
+
+def normalizar_data(bruta):
+    """Converte a data devolvida pela Shopee (formato incerto até confirmar na
+    amostra: pode vir DD-MM-AAAA, AAAAMMDD ou já AAAA-MM-DD) para AAAA-MM-DD,
+    que é o formato que a planilha/dashboard esperam para ordenar certo."""
+    bruta = bruta.strip()
+    if len(bruta) == 8 and bruta.isdigit():  # AAAAMMDD
+        return f"{bruta[0:4]}-{bruta[4:6]}-{bruta[6:8]}"
+    if "-" in bruta:
+        partes = bruta.split("-")
+        if len(partes[0]) == 4:  # já é AAAA-MM-DD
+            return bruta
+        if len(partes[-1]) == 4:  # DD-MM-AAAA
+            d, m, a = partes
+            return f"{a}-{m.zfill(2)}-{d.zfill(2)}"
+    return bruta  # formato desconhecido — mantém como veio pra não perder o dado
+
+# ── NORMALIZAÇÃO ──────────────────────────────────────────────
+def mapear_linha(shop_label, dia_str, item):
+    """
+    Converte 1 item do JSON de resposta da Shopee em 1 linha para a planilha.
+    ⚠️ Os nomes de campo abaixo são a MELHOR HIPÓTESE baseada na documentação
+    pública da Shopee Ads (impression, clicks, expense/cost, gmv, orders/
+    conversion). CONFIRME contra a amostra impressa no modo diagnóstico antes
+    de rodar 'coletar' — se os nomes não baterem, ajuste as chaves em
+    pega(...) abaixo em vez de mudar a estrutura da planilha.
+    """
+    def pega(*chaves, default=0):
+        for k in chaves:
+            if k in item and item[k] is not None:
+                return item[k]
+        return default
+
+    impressions = float(pega("impression", "impressions"))
+    clicks      = float(pega("clicks", "click"))
+    cost        = float(pega("expense", "cost")) 
+    gmv         = float(pega("broad_gmv", "direct_gmv", "gmv"))
+    orders      = float(pega("broad_order", "direct_order", "order", "orders"))
+
+    ctr_pct = (clicks / impressions * 100) if impressions > 0 else 0
+    cpc = (cost / clicks) if clicks > 0 else 0
+    roas = (gmv / cost) if cost > 0 else 0
+    conversion_rate = (orders / clicks * 100) if clicks > 0 else 0
+
+    return [
+        dia_str, shop_label,
+        round(impressions), round(clicks), round(ctr_pct, 2),
+        round(cost, 2), round(gmv, 2), round(roas, 2),
+        round(cpc, 2), round(orders), round(conversion_rate, 2),
+    ]
+
+CABECALHO = [
+    "date", "shop", "impressions", "clicks", "ctr_pct",
+    "cost", "gmv", "roas", "cpc", "orders", "conversion_rate",
+]
+
+# ── SHEETS ─────────────────────────────────────────────────────
 def garantir_aba(sh):
-    """Cria a aba 'concorrentes' se não existir e define cabeçalho."""
     try:
         ws = sh.worksheet(ABA_NOME)
     except gspread.exceptions.WorksheetNotFound:
-        ws = sh.add_worksheet(title=ABA_NOME, rows=5000, cols=15)
-
-    cabecalho = [
-        "data", "termo_busca", "loja", "produto",
-        "preco_min", "preco_max", "desconto_pct",
-        "vendas_estimadas", "rating", "qtd_avaliacoes",
-        "estoque", "is_on_sale", "url"
-    ]
+        ws = sh.add_worksheet(title=ABA_NOME, rows=3000, cols=15)
     dados = ws.get_all_values()
-    if not dados or dados[0] != cabecalho:
+    if not dados or dados[0] != CABECALHO:
         ws.clear()
-        ws.append_row(cabecalho)
+        ws.append_row(CABECALHO)
     return ws
 
+def datas_ja_salvas(ws, shop_label):
+    dados = ws.get_all_values()
+    if len(dados) <= 1:
+        return set()
+    idx_date = CABECALHO.index("date")
+    idx_shop = CABECALHO.index("shop")
+    return {linha[idx_date] for linha in dados[1:] if linha[idx_shop] == shop_label}
+
 def limpar_dados_antigos(ws):
-    """Remove linhas com data anterior a DIAS_RETENCAO dias atrás."""
-    from datetime import datetime, timedelta
     limite = date.today() - timedelta(days=DIAS_RETENCAO)
     dados = ws.get_all_values()
     if len(dados) <= 1:
-        return  # só cabeçalho, nada a fazer
-
-    # identifica linhas a manter (cabeçalho + dados dentro do período)
-    manter = [dados[0]]  # sempre mantém cabeçalho
+        return
+    manter = [dados[0]]
     removidas = 0
     for linha in dados[1:]:
         try:
-            data_linha = date.fromisoformat(linha[0])
-            if data_linha >= limite:
+            if date.fromisoformat(linha[0]) >= limite:
                 manter.append(linha)
             else:
                 removidas += 1
-        except:
-            manter.append(linha)  # linha com data inválida: mantém
-
-    if removidas > 0:
-        print(f"  🗑️  Removendo {removidas} linhas com mais de {DIAS_RETENCAO} dias...")
+        except Exception:
+            manter.append(linha)
+    if removidas:
         ws.clear()
         ws.append_rows(manter, value_input_option="USER_ENTERED")
-        print(f"  ✅ Limpeza concluída — {len(manter)-1} linhas mantidas")
+        print(f"  🗑️  {removidas} linhas com mais de {DIAS_RETENCAO} dias removidas")
+
+# ── PRINCIPAL ──────────────────────────────────────────────────
+def lojas_validas(cfg):
+    validas = []
+    for shop in cfg["shops"]:
+        tok = shop.get("access_token", "")
+        if not tok or tok.startswith("SEU_"):
+            print(f"  ⏭️  Pulando {shop.get('name')} — sem token configurado ainda.")
+            continue
+        validas.append(shop)
+    return validas
+
+def rodar(modo):
+    cfg = carregar_config()
+    lojas = lojas_validas(cfg)
+    if not lojas:
+        sys.exit("❌ Nenhuma loja com token configurado em config.json.")
+
+    hoje = date.today()
+    if modo == "diagnostico":
+        data_inicio = hoje - timedelta(days=3)
+        data_fim = hoje
     else:
-        print(f"  ℹ️  Nenhuma linha para remover (todas dentro de {DIAS_RETENCAO} dias)")
+        data_inicio = hoje - timedelta(days=JANELA_COLETA_NORMAL)
+        data_fim = hoje
 
-def salvar(ws, linhas):
-    if not linhas:
+    linhas_para_salvar = []
+
+    for shop in lojas:
+        partner_id = str(shop["partner_id"])
+        partner_key = shop["partner_key"]
+        print(f"\n🔑 Renovando token — {shop['name']}...")
+        novo = renovar_token(shop, partner_id, partner_key)
+        if not novo:
+            print(f"  ⚠️  Usando access_token antigo (pode estar expirado) para {shop['name']}")
+        else:
+            shop["access_token"] = novo["access_token"]
+            shop["refresh_token"] = novo["refresh_token"]
+            salvar_config(cfg)
+            print(f"  ✅ Token renovado e salvo em {CONFIG_PATH}")
+
+        print(f"📈 Buscando performance de Ads — {shop['name']} ({data_inicio} → {data_fim})")
+        resp = chamar_ads_performance(shop, partner_id, partner_key, data_inicio, data_fim)
+
+        if resp is None:
+            continue
+
+        if modo == "diagnostico":
+            print("\n  🔎 RESPOSTA BRUTA DA SHOPEE (confira os campos antes de rodar 'coletar'):")
+            print(" ", json.dumps(resp, ensure_ascii=False, indent=2)[:3000])
+            continue
+
+        if resp.get("error"):
+            print(f"  ❌ Erro da API: {resp.get('error')} — {resp.get('message')}")
+            if resp.get("error") == "error_permission_denied":
+                print("     → Sua conta ainda não tem a Ads API liberada. Abra um chamado")
+                print("       no Shopee Partner Support pedindo acesso ao módulo de Ads.")
+            continue
+
+        resposta_bruta = resp.get("response")
+        if isinstance(resposta_bruta, list):
+            itens = resposta_bruta
+        elif isinstance(resposta_bruta, dict):
+            itens = resposta_bruta.get("daily_performance") or resposta_bruta.get("list") or []
+        else:
+            itens = []
+        if not isinstance(itens, list):
+            print(f"  ⚠️  Formato de resposta inesperado, veja acima e ajuste mapear_linha(). Bruto: "
+                  f"{json.dumps(resp, ensure_ascii=False)[:500]}")
+            continue
+
+        for item in itens:
+            dia_bruto = str(item.get("date") or item.get("day") or "")
+            dia_str = normalizar_data(dia_bruto)
+            linha = mapear_linha(shop["name"], dia_str, item)
+            linhas_para_salvar.append(linha)
+
+        print(f"  ✅ {len(itens)} dias de performance coletados para {shop['name']}")
+
+    if modo == "diagnostico":
+        print("\n✅ Diagnóstico concluído — nada foi salvo na planilha.")
+        print("   Se os campos acima baterem com CABECALHO/mapear_linha(), rode:")
+        print("   python shopee_ads_to_sheets.py coletar")
         return
-    ws.append_rows(linhas, value_input_option="USER_ENTERED")
-    print(f"  📊 {len(linhas)} linhas salvas no Sheets")
 
-def main():
-    hoje = date.today().isoformat()
-    print(f"\n🚀 Minas Clean — Scraping de Concorrentes — {hoje}")
+    if not linhas_para_salvar:
+        print("\nℹ️  Nenhuma linha nova para salvar.")
+        return
 
-    client = conectar_sheets()
-    sh = client.open_by_key(SHEET_ID)
+    print(f"\n💾 Conectando ao Google Sheets...")
+    client = conectar_sheets(cfg)
+    sh = client.open_by_key(cfg["google_sheets"]["spreadsheet_id"])
     ws = garantir_aba(sh)
     limpar_dados_antigos(ws)
 
-    todas_linhas = []
-    amostra_impressa = False
-    contagem_lojas = {"minha_loja": 0, "minha_loja2": 0}
+    # evita duplicar linhas (mesma data+loja já salva)
+    linhas_filtradas = []
+    cache_datas = {}
+    for linha in linhas_para_salvar:
+        shop_label = linha[1]
+        if shop_label not in cache_datas:
+            cache_datas[shop_label] = datas_ja_salvas(ws, shop_label)
+        if linha[0] not in cache_datas[shop_label]:
+            linhas_filtradas.append(linha)
 
-    for termo in TERMOS_BUSCA:
-        produtos_brutos = rodar_apify(termo)
-        if produtos_brutos and not amostra_impressa:
-            print("\n  🔎 AMOSTRA DO 1º ITEM BRUTO (confira se os campos batem):")
-            print(" ", json.dumps(produtos_brutos[0], ensure_ascii=False)[:800])
-            amostra_impressa = True
-
-        # ⚠️ 02/07/2026 — DESCOBERTO: o actor xtracto/shopee-scraper devolve
-        # o campo 'name' DESALINHADO em 1 posição dentro de cada lote — o
-        # nome real de cada produto está no item ANTERIOR da mesma lista
-        # bruta (preço/rating/url/shop_id não têm esse problema, só o nome).
-        # Confirmado comparando manualmente vários itens com a página real
-        # da Shopee. Corrigido aqui: usa o nome do item anterior no lote.
-        # O primeiro item de cada lote fica sem nome confiável (não tem
-        # "anterior" dentro do lote coletado) — marcado como tal.
-        for i, raw in enumerate(produtos_brutos):
-            p = normalizar_item(raw)
-            if i == 0:
-                p["name"] = "(nome não confirmado — 1º item do lote) " + (p.get("name") or "")
-            else:
-                nome_corrigido = normalizar_item(produtos_brutos[i - 1]).get("name")
-                if nome_corrigido:
-                    p["name"] = nome_corrigido
-
-            # Reconhece se esse produto é seu (por shop_id), mesmo vindo de
-            # uma busca de "concorrente" — mode="shop" está quebrado nesse
-            # actor (capado em ~5 produtos), então usamos os resultados de
-            # busca normal, que não tem esse limite, pra também capturar
-            # seus próprios produtos.
-            shopid = str(p.get("shopid") or "")
-            if shopid == MINHA_LOJA_SHOPID:
-                termo_busca, loja = "minha_loja", "minasclean"
-                contagem_lojas["minha_loja"] += 1
-            elif shopid == MINHA_LOJA2_SHOPID:
-                termo_busca, loja = "minha_loja2", "maximahome"
-                contagem_lojas["minha_loja2"] += 1
-            else:
-                termo_busca, loja = termo, p.get("shopName", "")
-
-            # Pra produtos seus, prioriza originalPrice (preço sem desconto
-            # temporário); pra concorrentes, usa o price normal.
-            preco = (p.get("originalPrice") or p.get("price", 0)) if termo_busca in ("minha_loja", "minha_loja2") else p.get("price", 0)
-
-            linha = [achatar(v) for v in [
-                hoje,
-                termo_busca,
-                loja,
-                (p.get("name") or "")[:120],
-                preco,
-                p.get("priceMax") or preco,
-                p.get("discountPercent", 0),
-                p.get("historicalSoldEstimated", ""),
-                p.get("rating", 0),
-                p.get("reviewCount", 0),
-                p.get("stock", 0),
-                "Sim" if p.get("isOnSale") else "Não",
-                construir_url_shopee(p),
-            ]]
-            todas_linhas.append(linha)
-
-    salvar(ws, todas_linhas)
-    print(f"\n✅ Concluído — {len(todas_linhas)} produtos de {len(TERMOS_BUSCA)} buscas")
-    print(f"   Seus produtos capturados nas buscas: Loja 1 = {contagem_lojas['minha_loja']}, Loja 2 = {contagem_lojas['minha_loja2']}")
-    if contagem_lojas["minha_loja"] == 0 or contagem_lojas["minha_loja2"] == 0:
-        print("   ⚠️ Uma das lojas não apareceu em NENHUMA busca — pode não estar bem")
-        print("      rankeada pros termos de busca atuais, ou precisar de mais termos.")
-    print(f"   Planilha: https://docs.google.com/spreadsheets/d/{SHEET_ID}")
+    if linhas_filtradas:
+        ws.append_rows(linhas_filtradas, value_input_option="USER_ENTERED")
+        print(f"  📊 {len(linhas_filtradas)} linhas novas salvas na aba '{ABA_NOME}'")
+    else:
+        print("  ℹ️  Todas as linhas já existiam na planilha (nada duplicado).")
 
 if __name__ == "__main__":
-    main()
+    modo = sys.argv[1] if len(sys.argv) > 1 else "diagnostico"
+    if modo not in ("diagnostico", "coletar"):
+        sys.exit("Uso: python shopee_ads_to_sheets.py [diagnostico|coletar]")
+    rodar(modo)
