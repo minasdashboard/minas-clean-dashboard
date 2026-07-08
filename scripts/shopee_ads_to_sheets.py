@@ -29,7 +29,7 @@ volta no config.json a cada renovação).
 """
 
 import os, sys, json, time, hmac, hashlib, tempfile
-from datetime import date, timedelta
+from datetime import date, timedelta, datetime, timezone
 import requests
 import gspread
 from google.oauth2.service_account import Credentials
@@ -39,6 +39,7 @@ HOST = "https://partner.shopeemobile.com"
 CONFIG_PATH = os.environ.get("SHOPEE_CONFIG_FILE", "config.json")
 ABA_NOME = "historico_ads"
 DIAS_RETENCAO = 400  # ~13 meses de histórico de ads
+FUSO_BR = timezone(timedelta(hours=-3))  # BRT, sem horário de verão
 
 # quantos dias voltar na primeira coleta "cheia" (catch-up). Depois disso o
 # script só busca os últimos N dias a cada execução (evita reprocessar tudo).
@@ -176,7 +177,7 @@ def mapear_linha(shop_label, dia_str, item):
 
 CABECALHO = [
     "date", "shop", "impressions", "clicks", "ctr_pct",
-    "cost", "gmv", "roas", "cpc", "orders", "conversion_rate",
+    "cost", "gmv", "roas", "cpc", "orders", "conversion_rate", "atualizado_em",
 ]
 
 # ── SHEETS ─────────────────────────────────────────────────────
@@ -191,13 +192,35 @@ def garantir_aba(sh):
         ws.append_row(CABECALHO)
     return ws
 
-def datas_ja_salvas(ws, shop_label):
+def upsert_linhas(ws, linhas):
+    """Atualiza a linha se (date, shop) já existir na planilha; senão, cria
+    nova. Isso garante que dias recentes sejam recalculados e sobrescritos
+    a cada execução — corrige coletas parciais/incompletas de execuções
+    anteriores (ex: um dia coletado no meio da tarde, com poucas horas de
+    dado, fica atualizado quando o dia realmente fechar)."""
     dados = ws.get_all_values()
-    if len(dados) <= 1:
-        return set()
-    idx_date = CABECALHO.index("date")
-    idx_shop = CABECALHO.index("shop")
-    return {linha[idx_date] for linha in dados[1:] if linha[idx_shop] == shop_label}
+    idx_map = {}
+    for i, linha in enumerate(dados[1:], start=2):  # linha 1 é o cabeçalho
+        if len(linha) >= 2:
+            idx_map[(linha[0], linha[1])] = i
+
+    agora = datetime.now(FUSO_BR).strftime("%Y-%m-%d %H:%M:%S")
+    atualizacoes = []
+    novas = []
+    for linha in linhas:
+        linha_completa = linha + [agora]
+        chave = (linha[0], linha[1])
+        if chave in idx_map:
+            atualizacoes.append((idx_map[chave], linha_completa))
+        else:
+            novas.append(linha_completa)
+
+    for row_num, linha in atualizacoes:
+        ws.update(f"A{row_num}", [linha], value_input_option="USER_ENTERED")
+    if novas:
+        ws.append_rows(novas, value_input_option="USER_ENTERED")
+
+    return len(atualizacoes), len(novas)
 
 def limpar_dados_antigos(ws):
     limite = date.today() - timedelta(days=DIAS_RETENCAO)
@@ -313,21 +336,8 @@ def rodar(modo):
     ws = garantir_aba(sh)
     limpar_dados_antigos(ws)
 
-    # evita duplicar linhas (mesma data+loja já salva)
-    linhas_filtradas = []
-    cache_datas = {}
-    for linha in linhas_para_salvar:
-        shop_label = linha[1]
-        if shop_label not in cache_datas:
-            cache_datas[shop_label] = datas_ja_salvas(ws, shop_label)
-        if linha[0] not in cache_datas[shop_label]:
-            linhas_filtradas.append(linha)
-
-    if linhas_filtradas:
-        ws.append_rows(linhas_filtradas, value_input_option="USER_ENTERED")
-        print(f"  📊 {len(linhas_filtradas)} linhas novas salvas na aba '{ABA_NOME}'")
-    else:
-        print("  ℹ️  Todas as linhas já existiam na planilha (nada duplicado).")
+    atualizadas, novas = upsert_linhas(ws, linhas_para_salvar)
+    print(f"  📊 {atualizadas} linhas atualizadas, {novas} linhas novas salvas na aba '{ABA_NOME}'")
 
 if __name__ == "__main__":
     modo = sys.argv[1] if len(sys.argv) > 1 else "diagnostico"
