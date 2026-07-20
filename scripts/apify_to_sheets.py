@@ -164,7 +164,7 @@ def normalizar_item(raw):
             "rating": raw.get("rating_star") or raw.get("rating") or 0,
             "reviewCount": raw.get("rating_count") or raw.get("total_ratings") or 0,
             "stock": raw.get("stock") or 0,
-            "shopName": raw.get("shop_name") or raw.get("shop") or (f"Loja #{raw.get('shop_id')}" if raw.get("shop_id") else ""),
+            "shopName": _extrair_nome_real(raw.get("shop_name") or raw.get("shop")) or (f"Loja #{raw.get('shop_id')}" if raw.get("shop_id") else ""),
             "itemid": raw.get("item_id"),
             "shopid": raw.get("shop_id"),
             "url": raw.get("url") or "",
@@ -197,7 +197,7 @@ def normalizar_item(raw):
         "rating": pega("item_rating", "rating", default=0) if not isinstance(pega("item_rating"), dict) else (pega("item_rating") or {}).get("rating_star", 0),
         "reviewCount": pega("cmt_count", "reviewCount", default=0),
         "stock": pega("stock", default=0),
-        "shopName": pega("shop_name", "shopName", default=""),
+        "shopName": _extrair_nome_real(pega("shop_name", "shopName", default="")),
         "itemid": pega("itemid", "item_id"),
         "shopid": pega("shopid", "shop_id"),
         "url": pega("url"),  # se o actor não devolver url pronta, ver construir_url_shopee()
@@ -312,7 +312,8 @@ def rodar_apify(termo):
         f"?token={APIFY_TOKEN}&format=json&clean=true"
     )
     items = requests.get(items_url, timeout=30).json()
-    items = corrigir_offset_nomes(items)
+    # ✅ 20/07/2026: corrigir_offset_nomes() removida daqui — era pro campo
+    # 'name' antigo, que não existe mais (agora é 'title', correto por item).
 
     if detectar_dados_mock(items):
         print(f"  🚨 ALERTA: o actor '{ACTOR_ID}' devolveu DADOS MOCK/FAKE para '{termo}', não dados reais!")
@@ -373,7 +374,8 @@ def rodar_apify_loja(shop_url):
         f"?token={APIFY_TOKEN}&format=json&clean=true"
     )
     items = requests.get(items_url, timeout=30).json()
-    items = corrigir_offset_nomes(items)
+    # ✅ 20/07/2026: corrigir_offset_nomes() removida daqui — era pro campo
+    # 'name' antigo, que não existe mais (agora é 'title', correto por item).
 
     if detectar_dados_mock(items):
         print(f"  🚨 ALERTA: o actor '{ACTOR_ID}' devolveu DADOS MOCK/FAKE para a loja '{shop_url}'!")
@@ -466,25 +468,36 @@ def main():
         produtos_brutos = rodar_apify(termo)
         if produtos_brutos and not amostra_impressa:
             print("\n  🔎 AMOSTRA DO 1º ITEM BRUTO (confira se os campos batem):")
-            print(" ", json.dumps(produtos_brutos[0], ensure_ascii=False)[:800])
+            print(" ", json.dumps(produtos_brutos[0], ensure_ascii=False)[:4000])
+            # Verifica explicitamente se existe algum campo de variações
+            # (tamanho/quantidade com preço próprio) — a Shopee chama isso
+            # de "models" internamente. Sem isso, só capturamos 1 preço por
+            # anúncio, mesmo quando o produto tem várias opções na página.
+            chaves_variacao = [k for k in produtos_brutos[0].keys()
+                                if any(termo in k.lower() for termo in ("model", "tier", "variat", "variant", "option", "sku"))]
+            if chaves_variacao:
+                print(f"  🧩 Campos que parecem ser de VARIAÇÕES/MODELS: {chaves_variacao}")
+                for k in chaves_variacao:
+                    print(f"     {k} = {json.dumps(produtos_brutos[0][k], ensure_ascii=False)[:2000]}")
+            else:
+                print("  ℹ️  Nenhum campo óbvio de variações/models encontrado neste item"
+                      " (chaves disponíveis: " + ", ".join(produtos_brutos[0].keys()) + ")")
             amostra_impressa = True
 
-        # ⚠️ 02/07/2026 — DESCOBERTO: o actor xtracto/shopee-scraper devolve
-        # o campo 'name' DESALINHADO em 1 posição dentro de cada lote — o
-        # nome real de cada produto está no item ANTERIOR da mesma lista
-        # bruta (preço/rating/url/shop_id não têm esse problema, só o nome).
-        # Confirmado comparando manualmente vários itens com a página real
-        # da Shopee. Corrigido aqui: usa o nome do item anterior no lote.
-        # O primeiro item de cada lote fica sem nome confiável (não tem
-        # "anterior" dentro do lote coletado) — marcado como tal.
+        # ⚠️ 02/07/2026 — histórico: o actor xtracto/shopee-scraper chegou a
+        # devolver o campo 'name' desalinhado 1 posição dentro do lote, o
+        # que exigia essa correção manual de deslocamento.
+        # ✅ 20/07/2026 — RESOLVIDO NA ORIGEM: o actor passou a devolver o
+        # título do produto no campo 'title', vinculado corretamente ao
+        # item_id/price/url do mesmo item (sem desalinhamento) — confirmado
+        # com amostra real. A correção manual de deslocamento foi REMOVIDA
+        # daqui porque, com o title já correto por item, ela só piorava as
+        # coisas (sobrescrevia o nome certo com o nome do item vizinho).
+        # Se esse tipo de desalinhamento voltar a acontecer no futuro,
+        # confirmar de novo com uma amostra bruta antes de reintroduzir
+        # qualquer correção de deslocamento.
         for i, raw in enumerate(produtos_brutos):
             p = normalizar_item(raw)
-            if i == 0:
-                p["name"] = "(nome não confirmado — 1º item do lote) " + (p.get("name") or "")
-            else:
-                nome_corrigido = normalizar_item(produtos_brutos[i - 1]).get("name")
-                if nome_corrigido:
-                    p["name"] = nome_corrigido
 
             # Reconhece se esse produto é seu (por shop_id), mesmo vindo de
             # uma busca de "concorrente" — mode="shop" está quebrado nesse
