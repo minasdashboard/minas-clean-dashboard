@@ -111,13 +111,38 @@ def detectar_dados_mock(items):
             return True
     return False
 
+def _extrair_nome_real(valor):
+    """⚠️ 20/07/2026 — CONFIRMADO: com fetchDetail=True (ativado em 06/07),
+    o campo 'name' às vezes vem como um objeto aninhado tipo
+    {"shopid": 372044688, "name": "título real do produto"} em vez de texto
+    simples — visto na coleta de 20/07/2026 (189 produtos com esse formato
+    quebrado na planilha, coluna 'produto'). Detecta esse formato (tanto
+    como dict de verdade quanto como string de JSON) e extrai o nome real
+    de dentro, em vez de salvar o objeto bruto."""
+    if isinstance(valor, dict):
+        return valor.get("name") or ""
+    if isinstance(valor, str) and valor.strip().startswith("{") and '"name"' in valor:
+        try:
+            parsed = json.loads(valor)
+            if isinstance(parsed, dict) and parsed.get("name"):
+                return parsed["name"]
+        except Exception:
+            pass
+    return valor if isinstance(valor, str) else ""
+
 def normalizar_item(raw):
     """Normaliza um item bruto do actor pra um formato único.
     Suporta 3 formatos:
-      (a) xtracto/shopee-scraper — CONFIRMADO com dado real em 2026-07-01.
-          Campos flat: item_id, shop_id, name, price, original_price,
-          discount_pct, rating, rating_count, sold_count, url, currency.
-          Preço vem em CENTAVOS (ex: 2790 = R$ 27,90).
+      (a) xtracto/shopee-scraper — CONFIRMADO com dado real em 2026-07-01,
+          e RECONFIRMADO em 2026-07-20 com uma mudança importante: o ator
+          passou a devolver o título do produto no campo 'title' (não mais
+          'name' como antes). Campos flat: item_id, shop_id, title, price,
+          price_before_discount, discount_pct, rating_star, historical_sold,
+          sold, url/images. Preço vem em CENTAVOS (ex: 2287 = R$ 22,87).
+          Também vimos aqui price/price_min/price_max — quando os três são
+          iguais, o item não tem variação de tamanho/kit; ainda não
+          confirmamos como vem quando há variação (has_model_with_available_
+          shopee_stock=true) — precisa de uma amostra real desse caso.
       (b) formato 'item_basic' aninhado (API interna genérica da Shopee,
           preço em microunidades: R$ real = price / 100000) — fallback.
       (c) formato 'flat' antigo do gio21 (mock, mantido só por segurança) —
@@ -127,17 +152,17 @@ def normalizar_item(raw):
     if "item_id" in raw or "shop_id" in raw:
         # (a) Formato confirmado do xtracto/shopee-scraper
         preco = raw.get("price")
-        preco_orig = raw.get("original_price")
+        preco_orig = raw.get("price_before_discount") or raw.get("original_price")
         return {
-            "name": raw.get("name") or "",
+            "name": _extrair_nome_real(raw.get("title") or raw.get("name")) or "",
             "price": (preco / 100) if preco not in (None, "") else 0,
-            "priceMax": None,
+            "priceMax": (raw.get("price_max") / 100) if raw.get("price_max") not in (None, "") else None,
             "originalPrice": (preco_orig / 100) if preco_orig not in (None, "") else None,
             "discountPercent": raw.get("discount_pct") or 0,
             "isOnSale": bool(raw.get("discount_pct")),
-            "historicalSoldEstimated": raw.get("sold_count") or "",
-            "rating": raw.get("rating") or 0,
-            "reviewCount": raw.get("rating_count") or 0,
+            "historicalSoldEstimated": raw.get("historical_sold") or raw.get("sold") or raw.get("sold_count") or "",
+            "rating": raw.get("rating_star") or raw.get("rating") or 0,
+            "reviewCount": raw.get("rating_count") or raw.get("total_ratings") or 0,
             "stock": raw.get("stock") or 0,
             "shopName": raw.get("shop_name") or raw.get("shop") or (f"Loja #{raw.get('shop_id')}" if raw.get("shop_id") else ""),
             "itemid": raw.get("item_id"),
@@ -162,7 +187,7 @@ def normalizar_item(raw):
         return v / 100000 if eh_microunidade else v
 
     return {
-        "name":  pega("name", "title", default=""),
+        "name":  _extrair_nome_real(pega("name", "title", default="")),
         "price": conv(preco_bruto) or 0,
         "priceMax": conv(pega("price_max", "priceMax")),
         "originalPrice": conv(preco_original_bruto),
@@ -220,7 +245,7 @@ def corrigir_offset_nomes(items):
     for i, it in enumerate(items):
         novo = dict(it)
         if i - 1 >= 0:
-            novo["name"] = items[i - 1].get("name", "")
+            novo["name"] = _extrair_nome_real(items[i - 1].get("name", ""))
         else:
             novo["name"] = ""  # primeiro item do lote: sem anterior pra confirmar
         corrigidos.append(novo)
