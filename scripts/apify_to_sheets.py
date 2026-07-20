@@ -153,10 +153,30 @@ def normalizar_item(raw):
         # (a) Formato confirmado do xtracto/shopee-scraper
         preco = raw.get("price")
         preco_orig = raw.get("price_before_discount") or raw.get("original_price")
+        preco_max_raw = raw.get("price_max")
+        # 20/07/2026 — CONFIRMADO: existem os campos 'models' e 'tier_variations'
+        # (a Shopee usa "models" internamente pra representar variações de
+        # tamanho/cor/kit dentro de um mesmo anúncio, cada uma com preço
+        # próprio). Quando o anúncio tem variações, 'price' costuma ser o
+        # MENOR preço entre TODAS as variações — que pode ser de um tamanho
+        # bem diferente do que o título principal sugere (ex.: anúncio de
+        # "60x80" cujo preço mínimo, R$0,28, na real é de uma variação
+        # "35x60" dentro do mesmo anúncio). Isso gera comparação de preço
+        # errada por tamanho. Marcamos aqui pra o dashboard tratar esses
+        # casos com cautela (não comparar preço mínimo cegamente).
+        models = raw.get("models") or raw.get("tier_variations") or []
+        tem_variacoes = bool(raw.get("has_model_with_available_shopee_stock")) or bool(models)
+        preco_num = (preco / 100) if preco not in (None, "") else 0
+        preco_max_num = (preco_max_raw / 100) if preco_max_raw not in (None, "") else preco_num
+        # Faixa de preço muito ampla (>40% de diferença) é outro sinal forte
+        # de variações de tamanho diferentes dentro do mesmo anúncio, mesmo
+        # quando o actor não marcou has_model_with_available_shopee_stock.
+        if preco_num > 0 and preco_max_num > 0 and (preco_max_num / preco_num) > 1.4:
+            tem_variacoes = True
         return {
             "name": _extrair_nome_real(raw.get("title") or raw.get("name")) or "",
-            "price": (preco / 100) if preco not in (None, "") else 0,
-            "priceMax": (raw.get("price_max") / 100) if raw.get("price_max") not in (None, "") else None,
+            "price": preco_num,
+            "priceMax": preco_max_num,
             "originalPrice": (preco_orig / 100) if preco_orig not in (None, "") else None,
             "discountPercent": raw.get("discount_pct") or 0,
             "isOnSale": bool(raw.get("discount_pct")),
@@ -168,7 +188,9 @@ def normalizar_item(raw):
             "itemid": raw.get("item_id"),
             "shopid": raw.get("shop_id"),
             "url": raw.get("url") or "",
+            "temVariacoes": tem_variacoes,
         }
+
 
     base = raw.get("item_basic") if isinstance(raw.get("item_basic"), dict) else raw
 
@@ -408,7 +430,7 @@ def garantir_aba(sh):
         "data", "termo_busca", "loja", "produto",
         "preco_min", "preco_max", "desconto_pct",
         "vendas_estimadas", "rating", "qtd_avaliacoes",
-        "estoque", "is_on_sale", "url"
+        "estoque", "is_on_sale", "url", "tem_variacoes"
     ]
     dados = ws.get_all_values()
     if not dados or dados[0] != cabecalho:
@@ -532,6 +554,7 @@ def main():
                 p.get("stock", 0),
                 "Sim" if p.get("isOnSale") else "Não",
                 construir_url_shopee(p),
+                "Sim" if p.get("temVariacoes") else "Não",
             ]]
             todas_linhas.append(linha)
 
