@@ -314,10 +314,26 @@ def rodar_apify(termo):
     # Aguarda conclusão (máx 8 min — com fetchDetail=True a run visita cada
     # produto individualmente e fica bem mais lenta que antes; 3 min não é
     # mais suficiente pra maioria dos casos)
+    status = None
+    info = None
+    falhas_consecutivas = 0
     for _ in range(48):
         time.sleep(10)
         status_url = f"https://api.apify.com/v2/actor-runs/{run_id}?token={APIFY_TOKEN}"
-        info = requests.get(status_url, timeout=15).json()["data"]
+        try:
+            info = requests.get(status_url, timeout=30).json()["data"]
+            falhas_consecutivas = 0
+        except requests.exceptions.RequestException as e:
+            # 20/07/2026: timeout/instabilidade pontual da API da Apify não
+            # deve derrubar a coleta inteira (já rodando há minutos) — só
+            # tenta de novo na próxima volta do loop. Só desiste se falhar
+            # muitas vezes seguidas (rede realmente fora do ar).
+            falhas_consecutivas += 1
+            print(f"  ⚠️ Falha ao consultar status (tentativa {falhas_consecutivas}/5): {e}")
+            if falhas_consecutivas >= 5:
+                print(f"  ❌ Muitas falhas seguidas consultando status — desistindo deste termo.")
+                return []
+            continue
         status = info["status"]
         print(f"  Status: {status}")
         if status in ("SUCCEEDED", "FAILED", "ABORTED", "TIMED-OUT"):
@@ -487,7 +503,14 @@ def main():
     contagem_lojas = {"minha_loja": 0, "minha_loja2": 0}
 
     for termo in TERMOS_BUSCA:
-        produtos_brutos = rodar_apify(termo)
+        try:
+            produtos_brutos = rodar_apify(termo)
+        except Exception as e:
+            # 20/07/2026: isola falhas por termo — um erro de rede ou da
+            # Apify num termo específico não deve derrubar a coleta dos
+            # outros termos já enfileirados.
+            print(f"  ❌ Falha ao coletar '{termo}', pulando pro próximo termo: {e}")
+            continue
         if produtos_brutos and not amostra_impressa:
             print("\n  🔎 AMOSTRA DO 1º ITEM BRUTO (confira se os campos batem):")
             print(" ", json.dumps(produtos_brutos[0], ensure_ascii=False)[:4000])
