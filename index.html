@@ -1317,7 +1317,17 @@ function renderMonitorCards(competitorsData){
       // Preço por peça — comparação válida mesmo quando o kit do concorrente é diferente do seu
       const meuUnitPreco = getYourUnitPriceForTamanho(tam, 'all');
 
-      const sorted = [...produtos].sort((a,b) => parseBR(a.preco_min) - parseBR(b.preco_min));
+      // 20/07/2026: produtos com tem_variacoes="Sim" podem ter um preço
+      // mínimo que pertence a OUTRO tamanho/kit dentro do mesmo anúncio
+      // (ex.: anúncio "60x80" cujo preço mais baixo é na real de uma
+      // variação "35x60" do mesmo anúncio). Preferimos calcular min/max/
+      // médio só com produtos confiáveis (sem variação ambígua); se não
+      // sobrar nenhum confiável, usamos todos mesmo assim, mas avisamos.
+      const confiaveis = produtos.filter(p => p.tem_variacoes !== 'Sim');
+      const baseCalculo = confiaveis.length > 0 ? confiaveis : produtos;
+      const usouAmbiguos = confiaveis.length === 0 && produtos.some(p => p.tem_variacoes === 'Sim');
+
+      const sorted = [...baseCalculo].sort((a,b) => parseBR(a.preco_min) - parseBR(b.preco_min));
       const precoMin = parseBR(sorted[0].preco_min);
       const precoMax = parseBR(sorted[sorted.length-1].preco_min);
       const precoMedio = sorted.reduce((s,p) => s + parseBR(p.preco_min), 0) / sorted.length;
@@ -1357,14 +1367,19 @@ function renderMonitorCards(competitorsData){
 
       const lojas = [...new Set(produtos.map(p=>p.loja).filter(Boolean))];
 
-      // Linhas dos top 3 concorrentes
+      // Linhas dos top 3 concorrentes — marca quem tem variação ambígua
       const top3rows = top3.map(p => `
         <div style="display:flex;justify-content:space-between;align-items:center;padding:4px 0;border-bottom:1px solid var(--line);font-size:12px;">
-          <span style="color:var(--text-dim);flex:1;">${p.loja||'—'}</span>
+          <span style="color:var(--text-dim);flex:1;">${p.loja||'—'}${p.tem_variacoes === 'Sim' ? ' <span title="Este anúncio tem várias opções de tamanho/kit — o preço pode ser de outra variação" style="color:var(--accent);">⚠️</span>' : ''}</span>
           <span style="font-weight:600;color:var(--accent);">${fmtBRLTab1(parseBR(p.preco_min))}</span>
           <span style="color:var(--text-dim);margin-left:8px;">${p.vendas_estimadas||'—'} est.</span>
           <a href="${p.url||'#'}" target="_blank" style="margin-left:8px;color:var(--text-dim);font-size:11px;">Ver→</a>
         </div>`).join('');
+
+      const avisoVariacao = usouAmbiguos
+        ? `<div style="font-size:11px;color:var(--accent);margin-top:6px;">⚠️ Todos os anúncios encontrados têm várias opções de tamanho/kit — o preço mínimo mostrado pode não ser exatamente deste tamanho.</div>`
+        : '';
+
 
       const kitTitulo = kit != null ? `Kit ${kit}` : 'Kit não identificado';
 
@@ -1391,6 +1406,7 @@ function renderMonitorCards(competitorsData){
         <div style="margin-top:8px;">
           <div style="font-size:11px;color:var(--text-dim);margin-bottom:4px;font-weight:600;">TOP 3 MAIS BARATOS</div>
           ${top3rows}
+          ${avisoVariacao}
         </div>
         <div class="mc-footer" style="margin-top:8px;font-size:12px;color:var(--text-dim);">${recomendacao}</div>
       </div>`;
