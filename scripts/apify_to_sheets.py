@@ -500,6 +500,7 @@ def main():
 
     todas_linhas = []
     amostra_impressa = False
+    amostra_variacao_impressa = False
     contagem_lojas = {"minha_loja": 0, "minha_loja2": 0}
 
     for termo in TERMOS_BUSCA:
@@ -528,6 +529,21 @@ def main():
                 print("  ℹ️  Nenhum campo óbvio de variações/models encontrado neste item"
                       " (chaves disponíveis: " + ", ".join(produtos_brutos[0].keys()) + ")")
             amostra_impressa = True
+
+        # 23/07/2026 — INVESTIGAÇÃO: preço aparecendo 100x menor que o real
+        # (ex.: R$26,00 salvo como R$0,26) em alguns anúncios com variação
+        # de tamanho/kit. Captura o primeiro item com
+        # has_model_with_available_shopee_stock=true encontrado em QUALQUER
+        # termo, pra comparar a escala do campo 'price' desse tipo de item
+        # com a dos itens simples (sem variação).
+        if not amostra_variacao_impressa:
+            candidato = next((it for it in produtos_brutos if it.get("has_model_with_available_shopee_stock")), None)
+            if candidato:
+                print("\n  🔎 AMOSTRA DE ITEM COM VARIAÇÃO REAL (has_model_with_available_shopee_stock=true):")
+                print(" ", json.dumps(candidato, ensure_ascii=False)[:4000])
+                amostra_variacao_impressa = True
+
+
 
         # ⚠️ 02/07/2026 — histórico: o actor xtracto/shopee-scraper chegou a
         # devolver o campo 'name' desalinhado 1 posição dentro do lote, o
